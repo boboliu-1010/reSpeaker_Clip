@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'companion_home.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -27,12 +28,39 @@ class SenseCraftVoiceDemoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SenseCraft Voice SDK Demo',
+      title: 'Clip Notes',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: Colors.deepPurple,
+        colorScheme:
+            ColorScheme.fromSeed(seedColor: ink, primary: ink, surface: canvas),
+        scaffoldBackgroundColor: canvas,
         useMaterial3: true,
+        textTheme: ThemeData.light()
+            .textTheme
+            .apply(bodyColor: ink, displayColor: ink),
+        inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            hintStyle: const TextStyle(color: muted, fontSize: 13),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
+        chipTheme: ChipThemeData(
+            selectedColor: ink,
+            backgroundColor: Colors.transparent,
+            side: BorderSide.none,
+            labelStyle: const TextStyle(fontSize: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10))),
+        filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)))),
       ),
-      home: const DemoPage(),
+      home: CompanionHome(diagnosticsBuilder: (_) => const DemoPage()),
     );
   }
 }
@@ -112,6 +140,14 @@ class _DemoPageState extends State<DemoPage> {
       return await fn();
     } catch (e, st) {
       _appendLog('$label failed: $e');
+      if (mounted) {
+        final unsupported = e.toString().contains('Unsupported') ||
+            e.toString().contains('must be turned on');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(unsupported
+                ? '当前蓝牙不可用。模拟器请返回体验演示；真机请检查蓝牙与权限。'
+                : '操作未完成，请检查设备连接。详细信息见调试日志。')));
+      }
       SdkLog.e(label, e, st);
       return null;
     } finally {
@@ -314,9 +350,8 @@ class _DemoPageState extends State<DemoPage> {
       await _otaSession?.dispose();
       _otaSession = OtaSession(deviceId: conn.device.remoteId.str);
       _otaSub = _otaSession!.events.listen((p) {
-        final pct = p.progress >= 0
-            ? '${(p.progress * 100).toStringAsFixed(0)}%'
-            : '—';
+        final pct =
+            p.progress >= 0 ? '${(p.progress * 100).toStringAsFixed(0)}%' : '—';
         _appendLog('OTA ${p.phase.name} $pct — ${p.message}');
       });
       final ok = await _otaSession!.upgrade(File(path));

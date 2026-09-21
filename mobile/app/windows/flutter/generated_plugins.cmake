@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
+  ffmpeg_kit_flutter_new
   file_selector_windows
   opus_flutter_windows
   permission_handler_windows

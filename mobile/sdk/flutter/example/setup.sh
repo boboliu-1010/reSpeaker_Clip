@@ -3,7 +3,7 @@ set -euo pipefail
 
 platform="${1:-}"
 app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$app_dir/.." && pwd)"
+repo_root="$(cd "$app_dir/../../.." && pwd)"
 
 if [[ "$platform" != "android" && "$platform" != "ios" ]]; then
   echo "Usage: bash sdk/flutter/example/setup.sh <android|ios>" >&2

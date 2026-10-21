@@ -13,6 +13,9 @@ import '../audio_storage/storage_client.dart';
 import 'local_library.dart';
 import 'audio_presence.dart';
 import 'desktop_clip_page.dart';
+import 'audio_dialogs.dart';
+import 'recording_drafts.dart';
+import 'microphone_access.dart';
 
 class DesktopPage extends StatefulWidget {
   const DesktopPage({super.key});
@@ -26,11 +29,24 @@ class _DesktopPageState extends State<DesktopPage> {
   final _search = TextEditingController();
   final _player = AudioPlayer();
   ServerConfig? _serverConfig;
-  final _recorder = AudioRecorder();
+  AudioRecorder? _audioRecorder;
+  AudioRecorder get _recorder => _audioRecorder ??= AudioRecorder();
   final _clock = Stopwatch();
   Timer? _timer;
   BackupQueue? _queue;
   bool _autoBackup = true;
+  List<InputDevice> _inputs = [];
+  String? _inputId;
+  String _inputLabel = '系统默认输入';
+  String _activeInput = '';
+  StreamSubscription<Amplitude>? _amplitude;
+  double _decibels = -60;
+  List<File> _drafts = [];
+  List<TrashedAudio> _trash = [];
+  String? _playingPath;
+  RecordingDrafts get _recordings =>
+      RecordingDrafts(Directory('${_root!.path}/recordings'));
+
   bool _recording = false;
   bool _paused = false;
   bool _recordAction = false;
@@ -73,13 +89,16 @@ class _DesktopPageState extends State<DesktopPage> {
       _root = Directory('${dir.path}/boa_desktop');
       _library = LocalLibrary(Directory('${_root!.path}/library'));
       _local = await _library!.list();
+      _trash = await _library!.listTrash();
+      _drafts = await _recordings.list();
       _queue = BackupQueue(File('${_root!.path}/backup-queue.json'));
       await _queue!.load();
       final settings = File('${_root!.path}/preferences.json');
       if (await settings.exists()) {
-        _autoBackup =
-            (jsonDecode(await settings.readAsString()) as Map)['autoBackup'] ==
-                true;
+        final prefs = jsonDecode(await settings.readAsString()) as Map;
+        _autoBackup = prefs['autoBackup'] != false;
+        _inputId = prefs['inputId'] as String?;
+        _inputLabel = prefs['inputLabel'] as String? ?? '系统默认输入';
       }
       _serverConfig =
           ServerConfig(File('${_root!.path}/credentials/server.json'));
@@ -92,9 +111,6 @@ class _DesktopPageState extends State<DesktopPage> {
       }
     });
     if (_token.text.isNotEmpty) {
-      _endpoint = _address.text.trim();
-      _connectedToken = _token.text.trim();
-      await _enqueueAll();
       await _connect();
     }
   }
@@ -169,14 +185,14 @@ class _DesktopPageState extends State<DesktopPage> {
           .any((row) => row['sha256'] == hash && row['size'] == audio.bytes)) {
         await _queue!.markBackedUp(audio, _endpoint);
       } else {
-        await _queue!.enqueue(audio, _endpoint);
+        await _queue!.enqueue(audio, _endpoint, resetComplete: true);
       }
     }
     unawaited(_pump());
   }
 
   Future<void> _pump() async {
-    if (!_autoBackup ||
+    if (_client == null ||
         _connectedToken.isEmpty ||
         _queue == null ||
         _queue!.running ||
@@ -195,7 +211,10 @@ class _DesktopPageState extends State<DesktopPage> {
             try {
               final uploaded = await client.upload(
                   audio.file, Directory('${_root!.path}/sessions'),
-                  filename: audio.name);
+                  filename: audio.name, progress: (value) {
+                _queue!.setProgress(audio, destination, value);
+                if (mounted) setState(() {});
+              });
               if (mounted && _endpoint == destination) {
                 setState(() {
                   _remote.removeWhere((r) => r['id'] == uploaded['id']);
@@ -207,7 +226,8 @@ class _DesktopPageState extends State<DesktopPage> {
             }
           },
           endpoint: endpoint,
-          allowed: () => mounted && _autoBackup && _endpoint == endpoint,
+          allowed: () => mounted && _endpoint == endpoint,
+          automaticAllowed: () => _autoBackup,
           changed: () {
             if (mounted) setState(() {});
           });
@@ -216,46 +236,92 @@ class _DesktopPageState extends State<DesktopPage> {
     }
   }
 
-  Future<void> _upload(LocalAudio audio) async {
-    if (_queue == null || _endpoint.isEmpty) return;
-    await _queue!.enqueue(audio, _endpoint);
-    await _queue!.retryFailed();
-    await _pump();
+  Future<void> _upload(LocalAudio audio) => _work(() async {
+        if (_queue == null || _client == null) return;
+        _remote = await _client!.list();
+        final hash = audio.file.uri.pathSegments.last.split('.').first;
+        if (_remote
+            .any((r) => r['sha256'] == hash && r['size'] == audio.bytes)) {
+          await _queue!.markBackedUp(audio, _endpoint);
+          _status = '服务器已有相同音频，无需重复上传';
+        } else {
+          await _queue!.requestManual(audio, _endpoint);
+          _status = '已加入手动上传任务';
+          unawaited(_pump());
+        }
+      });
+
+  Future<void> _savePreferences() async {
+    final file = File('${_root!.path}/preferences.json');
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+        jsonEncode({
+          'autoBackup': _autoBackup,
+          'inputId': _inputId,
+          'inputLabel': _inputLabel
+        }),
+        flush: true);
   }
 
-  Future<void> _toggleBackup(bool enabled) async {
-    setState(() => _autoBackup = enabled);
-    await _work(() async {
-      final settings = File('${_root!.path}/preferences.json');
-      await settings.parent.create(recursive: true);
-      await settings.writeAsString(jsonEncode({'autoBackup': enabled}),
-          flush: true);
-      await _enqueueAll();
-      _status = enabled ? '自动备份已开启，包含现有本地音频' : '自动备份已关闭；当前已开始的上传会完成';
+  Future<void> _toggleBackup(bool enabled) => _work(() async {
+        _autoBackup = enabled;
+        await _savePreferences();
+        await _enqueueAll();
+        _status = enabled ? '自动上传已开启' : '自动上传已关闭；手动任务和已开始的上传仍会继续';
+      });
+
+  Future<void> _microphonePermission({bool request = false}) {
+    final recorder = _recorder;
+    return requireMicrophonePermission(
+        (prompt) => recorder.hasPermission(request: prompt),
+        request: request, stalled: () {
+      if (identical(_audioRecorder, recorder)) _audioRecorder = null;
+      unawaited(recorder.dispose().catchError((Object _) {}));
     });
   }
 
+  Future<void> _loadInputs() => _work(() async {
+        setState(() => _status = '正在检查麦克风权限…');
+        await _microphonePermission();
+        setState(() => _status = '正在读取系统输入设备…');
+        _inputs = await _recorder.listInputDevices();
+        _status = '已读取 ${_inputs.length} 个麦克风输入';
+      });
+
   Future<void> _startRecording() async {
-    if (_recordAction || _recording || _root == null) return;
+    if (_busy || _recordAction || _recording || _root == null) return;
     setState(() => _recordAction = true);
     try {
-      if (!await _recorder.hasPermission()) {
-        throw const FormatException('请在系统设置 → 隐私与安全性 → 麦克风中允许 Boa Voice');
-      }
+      await _microphonePermission(request: true);
       await _player.stop();
+      _inputs = await _recorder.listInputDevices();
+      final selected = _inputs.where((d) => d.id == _inputId).firstOrNull;
+      _activeInput = selected?.label ?? '系统默认输入';
+      final fallback = _inputId != null && selected == null;
       final dir = Directory('${_root!.path}/recordings');
       await dir.create(recursive: true);
       _recordPath =
           '${dir.path}/录音-${DateTime.now().millisecondsSinceEpoch}.wav';
       await _recorder.start(
-          const RecordConfig(
-              encoder: AudioEncoder.wav, sampleRate: 44100, numChannels: 1),
+          RecordConfig(
+              encoder: AudioEncoder.wav,
+              sampleRate: 44100,
+              numChannels: 1,
+              device: selected),
           path: _recordPath!);
       _clock.reset();
       _clock.start();
       _recording = true;
       _paused = false;
-      _status = '麦克风录音中 · 停止后自动保存并排队备份';
+      _status = fallback ? '原麦克风不可用，本次使用系统默认输入' : '麦克风录音中 · 停止后命名保存';
+      await _amplitude?.cancel();
+      _amplitude = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 200))
+          .listen((value) {
+        if (mounted && _recording && !_paused) {
+          setState(() => _decibels = value.current);
+        }
+      }, onError: (Object _) {});
     } catch (e) {
       _status = e is FormatException ? e.message : '无法启动麦克风，请检查系统权限和输入设备';
     } finally {
@@ -293,20 +359,50 @@ class _DesktopPageState extends State<DesktopPage> {
       if (path == null || await File(path).length() <= 44) {
         throw const FormatException('没有收到有效音频，请检查麦克风输入');
       }
-      final source = File(path);
-      await _library!.importFile(source);
-      _local = await _library!.list();
-      // Delete only the staging recording after its verified library copy exists.
-      await source.delete();
+      await _amplitude?.cancel();
+      await _saveDraft(File(path), durationMs: _clock.elapsedMilliseconds);
       _recordPath = null;
-      _tab = 0;
-      _status = '录音已保存到本地音频库';
-      await _enqueueAll();
     } catch (e) {
       _status = e is FormatException ? e.message : '保存失败，录音暂存文件已保留，请检查磁盘空间';
     } finally {
+      if (_root != null) _drafts = await _recordings.list();
       if (mounted) setState(() => _recordAction = false);
     }
+  }
+
+  Future<void> _recoverRecording() => _work(() async {
+        final file = _drafts.length == 1
+            ? _drafts.first
+            : await showDialog<File>(
+                context: context,
+                builder: (context) =>
+                    SimpleDialog(title: const Text('恢复暂存录音'), children: [
+                      for (final draft in _drafts)
+                        SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, draft),
+                            child: Text(draft.uri.pathSegments.last))
+                    ]));
+        if (file != null) await _saveDraft(file);
+      });
+
+  Future<void> _saveDraft(File file, {int? durationMs}) async {
+    if (!mounted) return;
+    final name = await askAudioName(context,
+        title: '保存录音',
+        initial:
+            '录音-${DateTime.now().toLocal().toString().split('.').first.replaceAll(':', '-')}',
+        extension: 'wav',
+        hint: '取消会保留暂存录音，可稍后恢复保存。');
+    if (name == null) {
+      _status = '录音已暂存，点击“恢复录音”继续保存';
+      return;
+    }
+    await _recordings.save(file, _library!, name: name, durationMs: durationMs);
+    _local = await _library!.list();
+    _drafts = await _recordings.list();
+    _tab = 0;
+    _status = '录音已保存到本地音频库';
+    await _enqueueAll();
   }
 
   Future<void> _download(Map<String, dynamic> row) => _work(() async {
@@ -314,8 +410,8 @@ class _DesktopPageState extends State<DesktopPage> {
         final downloaded = await _client!.download(
             row, Directory('${_root!.path}/downloads'),
             progress: _update);
-        final imported = await _library!
-            .importFile(downloaded, name: row['filename'] as String);
+        final imported = await _library!.importFile(downloaded,
+            name: row['filename'] as String, source: 'download');
         await _queue?.markBackedUp(imported, _endpoint);
         _local = await _library!.list();
         // Only the duplicate staging copy is removed after verified local import.
@@ -327,6 +423,7 @@ class _DesktopPageState extends State<DesktopPage> {
         await _player.stop();
         await _player.setFilePath(audio.file.path);
         _playing = audio.name;
+        _playingPath = audio.file.path;
         _status = '正在播放 ${audio.name}';
         _startPlayback();
       });
@@ -341,7 +438,8 @@ class _DesktopPageState extends State<DesktopPage> {
   void dispose() {
     _timer?.cancel();
     _lifecycle.dispose();
-    _recorder.dispose();
+    _amplitude?.cancel();
+    _audioRecorder?.dispose();
     _client?.close();
     _player.dispose();
     _address.dispose();
@@ -394,7 +492,9 @@ class _DesktopPageState extends State<DesktopPage> {
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(
                       '${localPresence(row, _remote, connected: _client != null)} · ${_size(row.bytes)} · 入库 ${audioTime(row.addedAt)}\n ${_endpoint.isEmpty ? '待配置备份' : _queue?.status(row, _endpoint) ?? '待备份'}'),
-                  onTap: _busy || _recording ? null : () => _play(row),
+                  onTap: () => showAudioDetails(context, row,
+                      presence: localPresence(row, _remote,
+                          connected: _client != null)),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(
                         tooltip: '播放',
@@ -402,11 +502,23 @@ class _DesktopPageState extends State<DesktopPage> {
                             _busy || _recording ? null : () => _play(row),
                         icon: const Icon(Icons.play_arrow)),
                     IconButton(
-                        tooltip: !_autoBackup ? '请开启自动备份' : '重试备份',
-                        onPressed: _busy || _client == null || !_autoBackup
+                        tooltip: '手动上传（无需开启自动上传）',
+                        onPressed: _busy || _client == null
                             ? null
                             : () => _upload(row),
                         icon: const Icon(Icons.cloud_upload_outlined)),
+                    PopupMenuButton<String>(
+                        tooltip: '管理音频',
+                        enabled: !_busy,
+                        onSelected: (action) => _manage(row, action),
+                        itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                  value: 'rename', child: Text('重命名')),
+                              PopupMenuItem(
+                                  value: 'export', child: Text('导出文件…')),
+                              PopupMenuItem(
+                                  value: 'trash', child: Text('移入回收站')),
+                            ]),
                   ]),
                 ));
           });
@@ -443,7 +555,184 @@ class _DesktopPageState extends State<DesktopPage> {
         });
   }
 
+  Future<void> _manage(LocalAudio audio, String action) => _work(() async {
+        if (action == 'rename') {
+          final name = await askAudioName(context,
+              title: '重命名',
+              initial: audio.name.replaceFirst(RegExp(r'\.[^.]+$'), ''),
+              extension: audio.extension,
+              hint: '修改本地显示名称；已上传的服务器文件名称保留。');
+          if (name == null) return;
+          final renamed = await _library!.rename(audio, name);
+          await _queue?.updateName(renamed);
+          if (_playingPath == audio.file.path) _playing = renamed.name;
+          _status = '本地音频已重命名';
+        } else if (action == 'export') {
+          final path = await FilePicker.platform.saveFile(
+              dialogTitle: '导出音频',
+              fileName: audio.name,
+              type: FileType.custom,
+              allowedExtensions: [audio.extension]);
+          if (path == null) return;
+          await _library!.export(audio, File(path));
+          _status = '导出完成 · 文件字节校验通过';
+        } else if (action == 'trash') {
+          if (_queue!.jobs().any((j) =>
+              j.audio.file.path == audio.file.path && j.state == 'uploading')) {
+            throw const FormatException('文件正在上传，请等待完成后再移入回收站');
+          }
+          final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                      title: const Text('移入回收站？'),
+                      content: Text('${audio.name}\n可随时恢复。服务器上的副本保留。'),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('取消')),
+                        FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('移入回收站'))
+                      ]));
+          if (confirmed != true) return;
+          if (_playingPath == audio.file.path) {
+            await _player.stop();
+            _playing = '';
+            _playingPath = null;
+          }
+          await _queue!.removeFile(audio);
+          await _library!.moveToTrash(audio);
+          _trash = await _library!.listTrash();
+          _status = '已移入回收站 · 服务器副本保留';
+        }
+        _local = await _library!.list();
+      });
+
+  Widget _trashView() {
+    if (_trash.isEmpty) {
+      return _empty(Icons.delete_outline, '回收站为空', '本地删除的音频会保留在这里，可随时恢复。');
+    }
+    return ListView(children: [
+      for (final item in _trash)
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.audio_file_outlined),
+                title: Text(item.audio.name),
+                subtitle: Text(
+                    '${_size(item.audio.bytes)} · 移入 ${audioTime(item.deletedAt)}'),
+                trailing: TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _work(() async {
+                              await _library!.restore(item);
+                              _local = await _library!.list();
+                              _trash = await _library!.listTrash();
+                              await _enqueueAll();
+                              _status = '音频已恢复，原始时间和来源保留';
+                            }),
+                    child: const Text('恢复'))))
+    ]);
+  }
+
+  Widget _tasks() {
+    final jobs = _queue?.jobs() ?? [];
+    if (jobs.isEmpty) {
+      return _empty(Icons.sync, '暂无同步任务', '连接服务器后开启自动上传，或在本地音频旁点击上传。');
+    }
+    return ListView(children: [
+      Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child:
+              Text(_autoBackup ? '自动上传已开启 · 任务按顺序处理' : '自动上传已关闭 · 手动任务仍可执行')),
+      for (final job in jobs)
+        Card(
+            child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Expanded(
+                            child: Text(job.audio.name,
+                                maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        Text(_jobState(job)),
+                        const SizedBox(width: 12),
+                        TextButton(
+                            onPressed: _busy ||
+                                    _client == null ||
+                                    job.endpoint != _endpoint ||
+                                    job.state == 'uploading'
+                                ? null
+                                : () => _upload(job.audio),
+                            child: Text(
+                                job.state == 'complete' ? '检查副本' : '上传 / 重试'))
+                      ]),
+                      Text('${job.manual ? '手动' : '自动'} · ${job.endpoint}',
+                          style: const TextStyle(color: Color(0xff667085))),
+                      if (job.state == 'uploading') ...[
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(value: job.progress),
+                        Text('${(job.progress * 100).toStringAsFixed(0)}%')
+                      ],
+                      if (job.error != null)
+                        Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                                '${job.error} · 已尝试 ${job.attempts}/3 次',
+                                style:
+                                    const TextStyle(color: Color(0xffb54708)))),
+                    ]))),
+    ]);
+  }
+
+  String _jobState(BackupJob job) => job.endpoint != _endpoint &&
+          job.state != 'complete' &&
+          job.state != 'uploading'
+      ? '等待连接原服务器'
+      : switch (job.state) {
+          'complete' => '已备份',
+          'uploading' => '上传中',
+          'failed' => job.attempts >= 3 ? '失败 · 等待手动重试' : '失败 · 稍后重试',
+          _ => job.endpoint != _endpoint
+              ? '等待连接原服务器'
+              : !_autoBackup && !job.manual
+                  ? '自动任务已暂停'
+                  : '等待上传',
+        };
+
   Widget _settings() => ListView(children: [
+        Text('录音输入', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        Text('已选：$_inputLabel'),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+            initialValue: _inputs.any((d) => d.id == _inputId) ? _inputId : '',
+            key: ValueKey(
+                '${_inputId ?? ''}:${_inputs.map((d) => d.id).join(',')}'),
+            decoration: const InputDecoration(labelText: '麦克风'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('系统默认输入')),
+              for (final d in _inputs)
+                DropdownMenuItem(value: d.id, child: Text(d.label))
+            ],
+            onChanged: _recording || _recordAction || _busy
+                ? null
+                : (id) => _work(() async {
+                      _inputId = id == '' ? null : id;
+                      _inputLabel =
+                          _inputs.where((d) => d.id == id).firstOrNull?.label ??
+                              '系统默认输入';
+                      await _savePreferences();
+                    })),
+        Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+                onPressed:
+                    _busy || _recordAction || _recording ? null : _loadInputs,
+                icon: const Icon(Icons.refresh),
+                label: const Text('刷新麦克风列表'))),
+        const Text('已选设备离线时会使用系统默认输入，并在录音时提示。'),
+        const SizedBox(height: 28),
         Text('连接自有存储', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
         const Text('本机服务使用 127.0.0.1；其他电脑使用服务器地址。\n音频保存在应用本地目录，关闭服务仍可播放。'),
@@ -477,7 +766,7 @@ class _DesktopPageState extends State<DesktopPage> {
         const Text('当前版本', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text(
-            'Mac 音频工作台 · Beta 1.0.1-beta.2\n支持本地导入、播放、HTTP 备份与下载。\n支持麦克风录音和自动备份；Clip 蓝牙连接及控制见“Clip 设备”；模型处理尚未接入。'),
+            'Mac 音频工作台 · Beta 1.0.1-beta.3\n支持本地导入、播放、HTTP 备份与下载。\n支持麦克风录音和自动备份；Clip 蓝牙连接及控制见“Clip 设备”；模型处理尚未接入。'),
       ]);
 
   Widget _playbar() => Container(
@@ -543,47 +832,52 @@ class _DesktopPageState extends State<DesktopPage> {
           body: Column(children: [
         Expanded(
             child: Row(children: [
-          Container(
+          SizedBox(
               width: 200,
-              color: const Color(0xffedf2f3),
-              child: Column(children: [
-                const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 30, 20, 28),
-                    child: Row(children: [
-                      Icon(Icons.graphic_eq, color: Color(0xff167d8d)),
-                      SizedBox(width: 8),
-                      Text('Boa Voice',
-                          style: TextStyle(
-                              fontSize: 21, fontWeight: FontWeight.w700)),
-                    ])),
-                for (final item in [
-                  (Icons.library_music_outlined, '本地音频'),
-                  (Icons.cloud_outlined, '服务器音频'),
-                  (Icons.tune, '服务设置'),
-                  (Icons.bluetooth, 'Clip 设备')
-                ].asMap().entries)
-                  Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      child: ListTile(
-                        selected: _tab == item.key,
-                        selectedTileColor: const Color(0xffd6e9e9),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        leading: Icon(item.value.$1),
-                        title: Text(item.value.$2),
-                        onTap: () => setState(() {
-                          _tab = item.key;
-                          if (_tab == 3) _clipOpened = true;
-                          _search.clear();
-                        }),
-                      )),
-                const Spacer(),
-                const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text('个人音频工作台\nmacOS · 本地优先',
-                        style: TextStyle(color: Color(0xff667085)))),
-              ])),
+              child: Material(
+                  color: const Color(0xffedf2f3),
+                  child: Column(children: [
+                    const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 30, 20, 28),
+                        child: Row(children: [
+                          Icon(Icons.graphic_eq, color: Color(0xff167d8d)),
+                          SizedBox(width: 8),
+                          Flexible(
+                              child: Text('Boa Voice',
+                                  style: TextStyle(
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w700))),
+                        ])),
+                    for (final item in [
+                      (Icons.library_music_outlined, '本地音频'),
+                      (Icons.cloud_outlined, '服务器音频'),
+                      (Icons.tune, '服务设置'),
+                      (Icons.bluetooth, 'Clip 设备'),
+                      (Icons.sync, '同步任务'),
+                      (Icons.delete_outline, '回收站')
+                    ].asMap().entries)
+                      Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
+                          child: ListTile(
+                            selected: _tab == item.key,
+                            selectedTileColor: const Color(0xffd6e9e9),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            leading: Icon(item.value.$1),
+                            title: Text(item.value.$2),
+                            onTap: () => setState(() {
+                              _tab = item.key;
+                              if (_tab == 3) _clipOpened = true;
+                              _search.clear();
+                            }),
+                          )),
+                    const Spacer(),
+                    const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Text('个人音频工作台\nmacOS · 本地优先',
+                            style: TextStyle(color: Color(0xff667085)))),
+                  ]))),
           Expanded(
               child: Padding(
                   padding: const EdgeInsets.all(28),
@@ -593,7 +887,14 @@ class _DesktopPageState extends State<DesktopPage> {
                         Row(children: [
                           Expanded(
                               child: Text(
-                                  ['本地音频', '服务器音频', '服务设置', 'Clip 设备'][_tab],
+                                  [
+                                    '本地音频',
+                                    '服务器音频',
+                                    '服务设置',
+                                    'Clip 设备',
+                                    '同步任务',
+                                    '回收站'
+                                  ][_tab],
                                   style: const TextStyle(
                                       fontSize: 28,
                                       fontWeight: FontWeight.bold))),
@@ -607,10 +908,12 @@ class _DesktopPageState extends State<DesktopPage> {
                                     : _connect,
                                 icon: const Icon(Icons.refresh)),
                           FilledButton.icon(
-                              onPressed:
-                                  _recordAction || _root == null || _recording
-                                      ? null
-                                      : _startRecording,
+                              onPressed: _busy ||
+                                      _recordAction ||
+                                      _root == null ||
+                                      _recording
+                                  ? null
+                                  : _startRecording,
                               icon: const Icon(Icons.mic),
                               label: const Text('麦克风录音')),
                           const SizedBox(width: 12),
@@ -640,7 +943,23 @@ class _DesktopPageState extends State<DesktopPage> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                         child: Text(
-                                            '${_paused ? '已暂停' : '正在录音'}  ${_time(_clock.elapsed)}')),
+                                            '${_paused ? '已暂停' : '正在录音'}  ${_time(_clock.elapsed)} · $_activeInput')),
+                                    SizedBox(
+                                        width: 100,
+                                        child: Column(children: [
+                                          LinearProgressIndicator(
+                                              value: _paused
+                                                  ? 0
+                                                  : ((_decibels + 60) / 60)
+                                                      .clamp(0, 1)),
+                                          Text(
+                                              _paused
+                                                  ? '输入已暂停'
+                                                  : '${_decibels.isFinite ? _decibels.toStringAsFixed(0) : '—'} dBFS',
+                                              style: const TextStyle(
+                                                  fontSize: 11)),
+                                        ])),
+                                    const SizedBox(width: 12),
                                     TextButton(
                                         onPressed: _recordAction
                                             ? null
@@ -652,11 +971,27 @@ class _DesktopPageState extends State<DesktopPage> {
                                             : _stopRecording,
                                         child: const Text('停止并保存')),
                                   ]))),
+                        if (_drafts.isNotEmpty && !_recording)
+                          Card(
+                              child: ListTile(
+                                  leading: const Icon(Icons.restore),
+                                  title: Text('${_drafts.length} 段未保存的暂存录音'),
+                                  subtitle: const Text('上次取消保存或应用异常退出后保留'),
+                                  trailing: TextButton(
+                                      onPressed: _busy || _recordAction
+                                          ? null
+                                          : _recoverRecording,
+                                      child: const Text('恢复录音')))),
                         Expanded(
                             child: IndexedStack(
                                 index: _tab == 3 ? 1 : 0,
                                 children: [
-                              _tab == 2 ? _settings() : _files(),
+                              switch (_tab) {
+                                2 => _settings(),
+                                4 => _tasks(),
+                                5 => _trashView(),
+                                _ => _files()
+                              },
                               _clipOpened
                                   ? const DesktopClipPage()
                                   : const SizedBox.shrink(),

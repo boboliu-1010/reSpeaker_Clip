@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:sensecraft_voice/sensecraft_voice.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'clip_protocol.dart';
+import 'clip_status.dart';
 
 class DesktopClipPage extends StatefulWidget {
   const DesktopClipPage({super.key});
@@ -26,6 +27,8 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
   String _message = '打开 Clip 并靠近 Mac。如果手机正在连接设备，请先在手机端断开。';
   String _details = '';
   int? _battery;
+  ClipStatus _snapshot = const ClipStatus();
+  DateTime? _updated;
 
   @override
   void initState() {
@@ -118,6 +121,8 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
               _at = null;
               _battery = null;
               _details = '';
+              _snapshot = const ClipStatus();
+              _updated = null;
               _message = 'Clip 已断开；设备可能仍在录音，重连后请刷新状态。';
             });
           }
@@ -143,8 +148,12 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
       }
     }
     if (mounted) {
-      setState(
-          () => _details = const JsonEncoder.withIndent('  ').convert(replies));
+      setState(() {
+        _details = const JsonEncoder.withIndent('  ').convert(replies);
+        _snapshot = ClipStatus.fromReplies(
+            replies['AT+VERSION'] as Map, replies['AT+GSTAT'] as Map);
+        _updated = replies['AT+GSTAT']['ok'] == true ? DateTime.now() : null;
+      });
     }
   }
 
@@ -166,6 +175,8 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
             _at = null;
             _battery = null;
             _details = '';
+            _snapshot = const ClipStatus();
+            _updated = null;
             _message = '已断开；不会停止设备独立录音。';
           });
         }
@@ -299,7 +310,58 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
                   child: Text(entry.key))
           ]),
           const SizedBox(height: 16),
-          SelectableText(_details),
+          Wrap(spacing: 12, runSpacing: 12, children: [
+            for (final field in [
+              ('设备状态', _snapshot.state),
+              (
+                '电量',
+                (_snapshot.battery ?? _battery) == null
+                    ? '未知'
+                    : '${_snapshot.battery ?? _battery}%'
+              ),
+              (
+                '充电',
+                _snapshot.charging == null
+                    ? '未知'
+                    : _snapshot.charging!
+                        ? '正在充电'
+                        : '未充电'
+              ),
+              ('固件', _snapshot.firmware ?? '未知'),
+              (
+                '录音时长',
+                _snapshot.durationSeconds == null
+                    ? '未知'
+                    : '${_snapshot.durationSeconds} 秒'
+              ),
+              (
+                '剩余空间',
+                _snapshot.freeMB == null ? '未知' : '${_snapshot.freeMB} MB'
+              ),
+            ])
+              SizedBox(
+                  width: 190,
+                  child: Card(
+                      child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(field.$1,
+                                    style: const TextStyle(
+                                        color: Color(0xff667085))),
+                                const SizedBox(height: 8),
+                                Text(field.$2,
+                                    style: const TextStyle(fontSize: 18)),
+                              ])))),
+          ]),
+          const SizedBox(height: 12),
+          Text(_updated == null
+              ? '未获取有效状态，请刷新；未知字段不会推测。'
+              : '状态快照：${_updated!.toLocal().toString().split('.').first} · 操作后自动刷新'),
+          ExpansionTile(
+              title: const Text('协议原始响应'),
+              children: [SelectableText(_details)]),
         ],
         const SizedBox(height: 24),
         const Text('连接说明', style: TextStyle(fontWeight: FontWeight.bold)),

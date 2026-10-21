@@ -1,6 +1,6 @@
 # Boa Voice 模块边界与协议设计
 
-**版本：0.1 评审草案｜日期：2026-10-21｜代码基线：`1ae8835` / 桌面 Beta 3。**
+**版本：0.2 评审草案｜日期：2026-10-21｜代码基线：`1ae8835` / 桌面 Beta 3。**
 
 当前软件维持已验收状态。本轮只定义模块、接口和协议，不改运行代码、不新增服务、不打包。本文中的“建议契约”需要评审后才能成为实现依据；现有协议与实现差异均单列，不以文档草案代替已经完成的功能。
 
@@ -16,7 +16,7 @@
 2. 现有文件存储 HTTP v1 保持兼容；模型任务不混入文件上传协议。
 3. 音频身份、远程副本与设备录音会话分开表示；本地删除不传播到服务端或设备。
 4. UI 通过用例与类型化接口操作业务，不直接调用 HTTP、文件系统、BLE 或模型。
-5. AI 第一阶段采用本地任务调度、用户自行配置模型凭据；是否改为服务器执行另行评审。
+5. 按官方流程由自有服务端执行转写/摘要，模型 endpoint 与凭据由服务端托管；App 上传音频、提交任务、获取/缓存结果，具体 wire 见 [服务端 AI HTTP v1 草案](../../contracts/ai-http-v1.md)。
 6. 每条跨模块调用明确成功条件、超时、重试和不确定结果，接口改动先更新契约与验收样例。
 
 ## 2. 范围与现状
@@ -27,7 +27,7 @@
 | 自建服务 | Python/FastAPI + SQLite + 磁盘文件；单用户 Bearer token；提供分片上传和下载 | 固化 [HTTP v1 契约](../../contracts/storage-http-v1.md) |
 | Clip | 桌面已有 BLE 扫描、连接、查询和录音控制；真机完整联调未完成 | 固化 [设备边界与兼容表](../../contracts/clip-device-v1.md)，不扩展固件命令 |
 | 手机端 | 仓库包含 Flutter 手机业务模块及 SDK；原手机启动测试仍有 ProviderScope 夹具问题 | 作为复用候选，不视为接入当前自建服务后即可完整运行 |
-| ASR/摘要 | 手机代码存在面向另一套 `/api/v1/...` 后端的接口；桌面及当前存储服务未接入 | 只提出独立接口，不声明已有服务端实现 |
+| ASR/摘要 | 手机代码存在面向另一套 `/api/v1/...` 后端的接口；桌面及当前存储服务未接入 | 已选定服务端执行，定义新增 `/api/boa/v1` 任务与结果契约，尚未实现 |
 | 发布 | 本地直接 Flutter 调试，交付前再打 Beta DMG | 本轮不构建、不发布 |
 
 依据优先级：**本次基线代码 → 经联调确认的契约/样例 → 描述性文档**。出现冲突先登记差异并评审，不自动以某个旧 README 覆盖实际协议。
@@ -36,7 +36,7 @@
 
 | 方案 | 优点 | 代价 | 建议 |
 | --- | --- | --- | --- |
-| A. App 内模块化 + 单独存储服务 + 模型适配器 | 保留现有可用能力，接口可测试，后续可替换 UI/存储/模型 | 需逐步把桌面页面中的编排移出 | **推荐** |
+| A. App 内模块化 + 同部署存储/AI API + 服务端 Worker/Provider | 保留现有存储，按官方流程在后台处理，App 退出后任务可继续 | 新增服务端任务/结果/配置模块并拆分 App 编排 | **用户已选择此流程；具体契约待评审** |
 | B. 直接全面复用原手机业务与后端协议 | 可参考较多产品功能 | 当前自建服务并不实现其账号、OSS、ASR、LLM API，需新增整套后台 | 暂不选 |
 | C. 立即拆账号、存储、转写、摘要等微服务 | 适合未来多人、多租户及持续云端执行 | 引入部署、鉴权、队列和跨服务一致性成本 | 需求明确后再评审 |
 
@@ -59,9 +59,11 @@ flowchart TD
     HTTP --> SERVER[自建文件存储服务]
     DEV --> SDK[Clip SDK 适配器]
     SDK --> HW[Clip 固件]
-    JOB -.-> ASR[语音识别适配器]
-    JOB -.-> LLM[文本处理适配器]
-    ASR -.-> PROVIDER[用户配置的模型服务]
+    JOB -.-> API[服务端 AI HTTP API]
+    API -.-> WORKER[持久队列与 Worker]
+    WORKER -.-> ASR[服务端语音识别适配器]
+    WORKER -.-> LLM[服务端文本处理适配器]
+    ASR -.-> PROVIDER[配置的模型服务]
     LLM -.-> PROVIDER
     UC --> CFG[配置与凭据接口]
 ```
@@ -82,9 +84,10 @@ flowchart TD
 | Sync | 目标固定的队列、重试、进度、上传/下载编排 | Library、Storage、配置接口 | 直接管理麦克风、推理或固件 |
 | Storage | 服务能力、远端清单、上传会话、取回内容 | HTTP 适配器与凭据读取 | 把传输成功等同于模型任务完成 |
 | Device | 连接会话、命令串行化、设备状态、能力集合 | Clip SDK；未来传输适配器 | 向页面暴露原始命令以任意执行 |
-| AI Jobs（规划） | 持久任务、取消/重试、结果版本 | Library、ASR/LLM、配置接口 | 借文件上传自动触发计费 |
-| Provider（规划） | 供应商鉴权、模型请求/响应及限制适配 | 凭据读取、网络 | 修改音频库、主导页面流程 |
-| Configuration | 服务/模型配置与凭据引用 | 平台凭据适配器 | 在日志、任务快照中暴露凭据 |
+| App AI Jobs（规划） | 服务端任务引用、提交/取消/轮询与结果缓存 | Storage 副本状态、服务端 AI API、脱敏档案 | 在 App 本地执行推理或因上传自动触发计费 |
+| Server AI Jobs（规划） | 鉴权、持久任务/队列、Worker 恢复、结果版本 | StorageReader、ModelRegistry、Provider、ResultStore | 依赖 App 保持在线；向客户端泄露供应商凭据 |
+| Server Provider（规划） | 供应商鉴权、模型请求/响应、解码分段与限制适配 | 服务端凭据句柄、受控网络和临时文件 | 修改 App 音频库、主导页面流程 |
+| Configuration | App 服务连接/Boa 凭据、脱敏模型档案；Server 另拥有模型配置与秘密引用 | 各自配置/凭据适配器、管理 API | 将模型密钥保存到 App 偏好、日志或任务快照 |
 
 **依赖规则：**领域数据类型不导入 Flutter Widget、HttpClient 或 BLE 类型；平台/网络类型仅停留在适配器。跨模块只使用第 5–7 节的数据与接口。共用的是 ID 和值对象，不共用可写数据库连接、可变 Map 或全局单例。
 
@@ -99,7 +102,8 @@ flowchart TD
 | `DeviceSessionId` | 固件定义的会话标识，按不透明字符串保存 | 不能拿它当服务端 ID，不能由本机时间猜测 |
 | `RemoteRef` | `(destinationId, recordingId)` | 服务端 ID 是 32 位小写 hex；现有 v1 同一 upload id 完成后成为 recording id |
 | `DestinationId` | 本地服务目标标识 | **规划**：显式配置记录 ID；现队列使用原始 endpoint + 本地路径，需要迁移适配 |
-| `JobId / OperationId` | 一次业务任务 / 一次调用的本地 UUID | 与供应商 task id 分开，不向旧固件假装发送 request id |
+| `JobId / OperationId` | 本地同步任务 / 一次调用的 UUID | 不向旧固件假装发送 request id |
+| `ServerJobId` | 服务端生成的 AI Job UUID | 与 server identity 配对缓存；和本地任务、供应商 task id 分开 |
 | 时间 | 领域 DTO 用 UTC RFC3339；时长/时间轴用毫秒；大小用字节 | HTTP v1 `created/expires` 是 Unix **秒**（可带小数）；GSTAT `duration` 是秒，`free_space` 是 MB，适配器转换 |
 | 未知值 | `null` | 不用 0/false/空闲替代未知；0% 和 charging=false 都是有效值 |
 
@@ -189,14 +193,14 @@ ConnectionTestResult { succeeded: bool, probe: metadata|inference,
 | DEV-01 / Device | 用例 | `scan(durationMs) -> Result<DeviceRef[]>`；`connect(deviceRef) -> Result<DeviceSnapshot>`、`disconnect() -> Result<void>`；`getSnapshot() -> Result<DeviceSnapshot>`、`watch() -> Stream<ModuleEvent<DeviceSnapshot>>` | 一个设备连接会话拥有一个命令队列；断开不意味着设备录音停止 |
 | DEV-02 / Device | 用例 | `execute(command, ctx) -> Result<DeviceCommandResult>` | command 限 start/pause/resume/stop/mark；区分 acknowledged / observed / outcomeUnknown，超时不盲重发 |
 | CFG-01 / Configuration | 适配器/用例 | `loadStorageProfile(destinationId) -> Result<StorageProfile>`；`saveStorageProfile(profile, expectedRevision) -> Result<StorageProfile>`；`resolveCredential(ref) -> Result<CredentialHandle>` | 配置返回凭据引用；凭据不进入任务、事件或日志；保存失败明确提示未持久化 |
-| JOB-01 / AI Jobs（规划） | 用例 | `submit(JobRequest) -> Result<JobRecord>`、`get(jobId) -> Result<JobRecord>`、`observe(jobId) -> Stream<ModuleEvent<JobRecord>>`、`cancel(jobId) -> Result<JobRecord>` | 显式触发；保存任务后执行；取消不保证供应商已停止计费 |
-| ASR-01 / ASR（规划） | AI Jobs | `capabilities() -> CapabilityReport`；`test(profile) -> Result<ConnectionTestResult>`；`transcribe(AsrRequest) -> Result<Transcript>` | 供应商差异只在适配器；时间戳统一到原音频全局毫秒轴 |
-| LLM-01 / LLM（规划） | AI Jobs | `capabilities() -> CapabilityReport`；`test(profile) -> Result<ConnectionTestResult>`；`summarize(TextRequest) -> Result<Summary>` | 输入带转写版本和模板版本，输出结构化结果，不直接修改原转写 |
+| JOB-01 / App AI Jobs（规划） | 用例 | `submit(JobRequest) -> Result<RemoteJob>`、`get(serverJobId) -> Result<RemoteJob>`、`observe(serverJobId) -> Stream<ModuleEvent<RemoteJob>>`、`cancel(serverJobId) -> Result<RemoteJob>` | 映射服务端 AI HTTP v1；固定 server identity；本地 observe 由轮询驱动，不声称服务端已有事件推送 |
+| ASR-01 / Server ASR（规划） | Server Worker | `capabilities() -> CapabilityReport`；`test(profile) -> Result<ConnectionTestResult>`；`transcribe(AsrRequest) -> Result<Transcript>` | 供应商差异只在适配器；时间戳统一到原音频全局毫秒轴 |
+| LLM-01 / Server LLM（规划） | Server Worker | `capabilities() -> CapabilityReport`；`test(profile) -> Result<ConnectionTestResult>`；`summarize(TextRequest) -> Result<Summary>` | 输入带转写版本和模板版本，输出结构化结果，不直接修改原转写 |
 
 补充约束：
 
 - enqueue 对同一目标与内容的未终结任务返回既有 JobId，不能并发创建第二个 worker；已完成任务先核对副本，副本存在返回既有 JobId，确认缺失才重排。`retry(jobId)` 仅接受失败任务，否则 invalidState。任务提交记录持久化成功后才返回 JobId。
-- `LocalReadLease` 的使用方必须释放；CredentialHandle 仅允许网络适配器取值使用，不可 JSON 序列化或记录日志。模型配置保存/加载复用带 revision 的同一配置原则，具体 ModelProfile 见第10节。
+- `LocalReadLease` 的使用方必须释放；CredentialHandle 仅允许网络适配器取值使用，不可 JSON 序列化或记录日志。服务端模型配置与任务绑定明确 revision，App 只缓存脱敏档案；具体 ModelProfile 见第10节。
 
 
 - `LocalReadLease` 是建议增加的读租约：上传/播放期间避免 Library 移动源文件；当前仅有上传源保护，不能把全套租约当已实现。
@@ -239,7 +243,7 @@ Capture 与 Device 会话分别串行，二者不共享“正在录音”布尔�
 | 本地文件 | active / trash 目录 | active / trashed；presence 与转写状态另存 |
 | App 备份任务 | pending / uploading / failed / complete | queued / running / failed / succeeded；“自动关闭/目标离线”等为等待原因，不是文件损坏 |
 | HTTP 上传会话 | uploading / finalizing / complete / failed；过期后移除 | 保留 wire 状态，由 Storage 适配；不能直接作为 UI 全局状态 |
-| AI 任务（规划） | 尚无桌面实现 | queued / running / needsAttention / succeeded / failed / canceled |
+| 服务端 AI 任务（规划） | 当前 Server/桌面均未接入 | queued / running / cancel_requested / needs_attention / succeeded / failed / cancelled |
 | Clip | 固件 state + recording + session | 保留原始快照与采样时间；与本机采集完全独立 |
 
 ### 8.2 录音、恢复与备份
@@ -292,7 +296,7 @@ sequenceDiagram
 | 磁盘满/写权限不足 | insufficientStorage / accessDenied；不删除未提交源数据 |
 | Clip ok=false | deviceRejected；读取 `msg`，兼容旧 `error/message`，未知错误不按文案猜状态码 |
 | Clip 写命令超时 | outcomeUnknown；查询 GSTAT/会话对账，不自动再次 START/STOP/MARK |
-| 模型 429/5xx（规划） | 只有供应商明确支持幂等或可查询任务，才自动重试提交；否则 needsAttention，避免重复计费 |
+| 模型 429/5xx（规划） | 服务端 Worker 仅在确定未外发/未受理或有幂等保证时有限重试；无法对账进入 needs_attention，避免重复计费 |
 | 不支持能力 | unsupported；禁用入口并说明，不尝试未注册命令或猜测模型 API |
 
 | 操作 | 是否可直接重试 | 成功/不确定结果处理 |
@@ -308,51 +312,28 @@ sequenceDiagram
 
 建议后续把这些值归属于各模块策略，限制总请求预算；UI 不再自行添加一层重试。首次改策略前应说明嵌套重试的总尝试数，避免“队列 3 次 × 每片 3 次 × 供应商重试”的放大。
 
-## 10. ASR 与摘要扩展接口（仅规划）
+## 10. 服务端转写与摘要接口（规划，取代 0.1 本地执行建议）
 
-建议第一阶段由本地 AI Jobs 执行，用户分别配置识别和文本模型；存储服务继续只存文件。后台常驻、多用户、跨端任务同步确有需求后，再设计服务器任务 API，不复用现有 `/api/audio/uploads` 假装任务提交。
+用户已选择沿官方流程：App 下载/采集到本地 → 上传至自有服务 → 服务端调用自定义模型 endpoint → App 获取和缓存结果。App 不运行 Provider，不托管模型密钥；现有存储 API 不变，新增接口基路径 `/api/boa/v1`。
 
-```text
-ModelProfile {
-  profileId, purpose: asr|llm, providerKind,
-  endpoint, deployment?, region?, apiVersion?, model?, credentialRef,
-  configRevision
-}
-AsrRequest { jobId, operationId, source: VerifiedFile, sourceSha256,
-  profile: ModelProfile, language?, offsetMs: int64 }
-TextRequest { jobId, operationId, transcriptId, transcriptRevision, fullText,
-  profile: ModelProfile, templateId, templateVersion, templateText }
-JobRecord { jobId: UUID, sequence: int64, request: JobRequest, state, delivery, attempts,
-  providerRequestId?, resultRef?, error: AppError?, createdAt, updatedAt }
-JobRequest {
-  kind: transcribe|summarize, audioId?, transcriptRef?,
-  profileId, configRevision, language?, templateRef?, operationId
-}
-Transcript {
-  transcriptId, audioId, sourceSha256, revision, language?,
-  fullText: string, segments: [{startMs, endMs, text, speakerId?}] | null,
-  providerRequestId?, generatedAt
-}
-Summary {
-  summaryId, transcriptId, transcriptRevision,
-  templateId, templateVersion, revision,
-  text, actionItems: [{text, owner?, dueAt?}], generatedAt
-}
-```
+完整请求/响应、权限、状态、错误及样例以 [AI HTTP v1](../../contracts/ai-http-v1.md)、[JSON Schema](../../contracts/ai-http-v1.schema.json)、[交互样例](../../contracts/examples/ai-http-v1.json) 为本专题唯一来源，不在此复制另一套不一致的字段名。
 
-接口条件：
+第6节类型映射：`JobRequest = TranscriptionCreate | SummaryCreate`（提交另带持久 Idempotency-Key）；`RemoteJob = {serverIdentity, wire: Job}`，GET/取消使用 wire.id，App 内事件 sequence 映射 wire.sequence。`AsrRequest` 是服务端内部 `{serverJobId, verifiedSourceHandle, profileSnapshot, language, requireTimestamps, requireSpeakers, deadlineAt}`；`TextRequest` 是 `{serverJobId, transcriptSnapshot, templateSnapshot, profileSnapshot, language, deadlineAt}`。profileSnapshot 固定版本并持秘密句柄，不能经 HTTP 返回；Transcript/Summary 的字段直接引用 wire 定义。本稿不再保留本地 Provider 的 ModelProfile/JobRecord 结构。
 
-- `transcribe` 必须传 audioId；`summarize` 必须传明确 transcriptRef/revision；请求字段不匹配直接 invalidArgument。
-- providerKind 不使用一个含糊的“Azure”：Azure Speech、Azure 上的兼容转写部署、Azure 文本模型的认证/路径不同，分别实现适配器；具体 endpoint、部署名和 API 版本需拿到实际服务配置后确认。
-- 能力表明确支持格式、单请求大小/时长、说话人/时间戳能力；超限先规划分段。原始 Clip Opus 不能仅改扩展名后发送。
-- ASR 分段结果加回音频全局 offset；`0 <= startMs < endMs <= durationMs`。fullText 必填；无可靠时间戳的供应商返回 segments=null，UI 只展示全文，不伪造时间轴。
-- speakerId 默认仅在单次供应商结果内有效；跨片说话人对齐必须单独验证，不能按同一编号直接合并。
-- 转写修改产生新 revision；摘要保存它使用的转写/模板版本，输入更新后标记摘要过期，不悄悄改旧结果。
-- 配置中途更改不影响已提交任务的配置快照；持久快照只保存 credentialRef。删除密钥后待运行任务进入 needsAttention。
-- 用户点击转写/摘要才触发外部模型。连接测试标明是否实际发出计费请求；不自动把录音或文本发送给默认供应商。
-- 本地任务不能保证 App 退出后继续执行，手机后台限制另行验证。供应商没有幂等键或可查询 task id 时，崩溃后不得自动重复提交；取消只是本地停止接纳结果，外部计费是否停止由供应商能力决定。
+| 边界 | 明确的契约 |
+| --- | --- |
+| 模型配置 | Server 保存 endpoint、协议族、部署/模型、API version 与秘密引用；App 管理 API 写入凭据后不保留，读取只返回 credential_configured |
+| 音频输入 | App 等待存储 state=complete 后以 recording_id + expected_sha256 提交；禁止任意音频 URL/文件路径 |
+| 转写 | POST transcriptions → 202 Job；GET jobs/id → succeeded 后 GET transcripts/id?revision=N |
+| 摘要 | POST summaries 指定 transcript_id/revision、模板内容/version 和模型 profile/revision；后台执行，GET summary 取最终结构化结果 |
+| 一键处理 | 首期 App 在转写成功后再发摘要请求，上传本身不自动触发；App 退出后已受理任务继续，尚未提交的后续摘要等待恢复编排 |
+| 恢复/幂等 | POST key 绑定身份/路径/请求；持久队列与供应商派发状态分开记录；未知外发不自动重复计费 |
+| 编辑/失效 | Transcript 编辑追加 revision；Summary 保留原输入版本并提供 input_stale，不覆盖旧结果 |
+| 任务结果 | 首期 polling，不新增 SSE/WS；缓存按服务身份 + result id + revision 隔离 |
 
-本节可用于后续专题设计，但不允许据此直接开始模型实现；还须确认第 13 节的模型部署与输出契约。
+服务端内部仍按 StorageReader、ModelRegistry、JobService、Provider、ResultStore 划界。Provider 能力必须经实际部署验证；Azure Speech、Azure OpenAI deployment API 和 Azure v1 不混为单一协议。只有选定适配器明确实现的能力才向 App 开放。
+
+本稿定义目标协议，尚未开发服务端 AI 路由，也未真实调用用户模型。供应商单次限制、真实转写质量、时间戳/说话人以及大文件分段均需实施后验收。
 
 ## 11. 当前代码到目标接口的差距
 
@@ -366,7 +347,7 @@ Summary {
 | D-06 | SDK/固件文档对 File Data 有“裸字节/二进制帧”描述差异；BLE/UDP DATA 头并不相同 | 以 pin 住的固件/SDK抓包样例冻结布局，详情见设备契约；未联调前不接桌面高速下载 |
 | D-07 | 当前存储接口无能力查询、业务错误码、稳定 cursor；未使用显式 Pydantic 请求/响应模型 | 先保留 v1，如需增强走有版本的兼容方案；不能将自动 OpenAPI 当完整业务协议 |
 | D-08 | 上传会话缓存按 origin + 本地路径 + sha，未绑定账号身份；队列按原始 endpoint/path | 未来引入 DestinationId/credential identity epoch，旧任务不得套用另一身份的凭据 |
-| D-09 | AI 配置手机代码依赖另一套后台，当前自建服务无对应路由 | 独立专题确定 Provider 和 Jobs 接口后实现，不直接复制页面冒充可用 |
+| D-09 | AI 配置手机代码依赖另一套后台，当前自建服务无对应路由 | 按 AI HTTP v1 草案新增服务端配置/任务/结果模块，再适配 App；不直接复制页面冒充可用 |
 | D-10 | 当前服务配置在沙箱 0600 明文文件，不等同于系统加密凭据存储 | 保持自用兼容，定义 CredentialStore 抽象；更强保护方案需权衡用户不希望反复钥匙串确认的约束 |
 
 这些问题本轮仅记录，不修业务代码。
@@ -384,7 +365,7 @@ Summary {
 | Sync → HTTP | 断片续传、相同片幂等/不同片冲突、202合并、重启恢复、ETag改变、Range被忽略、错误哈希、大文件内存有界 |
 | UI → Sync | 自动关闭仍可手动；只重试一项；切换目标不串传；认证失败可修配置后恢复 |
 | Device → SDK/固件 | 分片JSON、event/ack交错、ok=false/msg、START/STOP迟到回应、掉线后状态未知、BLE/UDP不同帧头及CRC |
-| Jobs → Provider | 超限分段、时间轴offset、缺说话人、不支持格式、重复提交计费风险、改配置/改转写后版本失效 |
+| App → Server AI → Provider | 授权/许可、profile revision、幂等、服务重启、未知派发、取消竞态、超限分段、时间轴和结果版本；具体见 AI HTTP v1 验收 |
 | 文档 → 实现 | [HTTP Schema 与样例](../../contracts/storage-http-v1.schema.json)；现有协议由服务端和客户端共用契约测试，不能只测mock返回200 |
 
 测试分层：离线样例验证接口形状；本机 HTTP 验证真实字节与重启；各平台真实麦克风验证权限/录音/播放；各固件 profile 真机验证 BLE/UDP。模拟器或 fixture 不替代硬件验收。当前已有用例和本地测试结果见 [Beta 3 验证](../../product/desktop-beta3-verification.md)，不将本设计列出的测试全部写成已通过。
@@ -399,7 +380,7 @@ Summary {
 | 音频身份/删除语义 | 当前内容去重不变；三端副本独立；无联动删除 | 新增逻辑录音实体、多端删除另立专题 |
 | 存储演进 | 保持 HTTP v1，目标身份/错误/分页增强单独设计版本 | 不在当前 `/api/audio` 静默改单位或响应包装 |
 | 设备 profile | 先锁定收到的固件版本与源码，再冻结可写命令和帧样例 | 真机信息未知前只允许已确认的查询/控制范围 |
-| 模型运行位置 | 首期本地 Jobs + BYOK，云端持续任务延期 | 必须确认后才定义具体 Provider 请求及任务落盘模型 |
+| 模型运行位置 | 用户已选择自有 Server Jobs + Provider，endpoint/凭据在服务端配置 | 评审 AI HTTP v1 的具体 wire/恢复/权限后再写实施计划 |
 | 模型部署与结果 | 确认实际 Azure 产品、部署、API版本及是否必须字级时间戳/说话人 | 未明确前不承诺“统一兼容接口即可接入” |
 | 凭据策略 | 保留当前自用行为，先定义抽象；是否迁移安全存储另评审 | 不在重构时改变权限和弹窗行为 |
 

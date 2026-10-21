@@ -8,6 +8,7 @@ the only maintained translation is `tests/clip/README_zh.md`.
 The Boa Voice working draft (Chinese) defines app module ownership and contracts before further development:
 
 - [Official-app customization scope: endpoints, permissions, storage and models](product/official-app-customization.md) — start here to review what changes and which protocols are affected
+- [Server transcription and summary HTTP v1 draft](contracts/ai-http-v1.md), [schema](contracts/ai-http-v1.schema.json), [fixtures](contracts/examples/ai-http-v1.json) — server-owned model endpoints and persistent AI jobs, not implemented
 - [Module and protocol design review](superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)
 - [Existing storage HTTP v1 contract](contracts/storage-http-v1.md), [payload schema](contracts/storage-http-v1.schema.json), [examples](contracts/examples/storage-http-v1.json)
 - [Clip device boundary and compatibility gaps](contracts/clip-device-v1.md)

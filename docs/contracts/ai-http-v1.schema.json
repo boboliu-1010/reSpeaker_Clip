@@ -1,0 +1,1411 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:boa:ai-http-v1:1.0.0-draft.1",
+  "title": "Boa server AI HTTP v1 review draft",
+  "description": "Not implemented. Validate request/response with a named $defs reference. Semantic constraints and byte budgets are normative in ai-http-v1.md.",
+  "$defs": {
+    "ProfileRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "TranscriptRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "CredentialWrite": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "api_key"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "writeOnly": true
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProfileCreate": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "enum": [
+            "asr",
+            "llm"
+          ]
+        },
+        "protocol": {
+          "enum": [
+            "openai_compatible",
+            "azure_openai"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialWrite"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "purpose",
+        "protocol",
+        "name",
+        "base_url",
+        "credential"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "azure_openai"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "deployment",
+              "api_version"
+            ],
+            "properties": {
+              "deployment": {
+                "type": "string",
+                "minLength": 1
+              },
+              "api_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "model": {
+                "type": "null"
+              },
+              "credential": {
+                "properties": {
+                  "kind": {
+                    "const": "api_key"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "openai_compatible"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "model"
+            ],
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "deployment": {
+                "type": "null"
+              },
+              "api_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ProfilePatch": {
+      "type": "object",
+      "properties": {
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialWrite"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "expected_revision"
+      ],
+      "additionalProperties": false,
+      "minProperties": 2
+    },
+    "ProfileCapabilities": {
+      "type": "object",
+      "properties": {
+        "timestamps": {
+          "type": "boolean"
+        },
+        "speakers": {
+          "type": "boolean"
+        },
+        "max_source_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "timestamps",
+        "speakers",
+        "max_source_bytes",
+        "max_duration_ms"
+      ],
+      "additionalProperties": false
+    },
+    "ModelProfile": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "purpose": {
+          "enum": [
+            "asr",
+            "llm"
+          ]
+        },
+        "protocol": {
+          "enum": [
+            "openai_compatible",
+            "azure_openai"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "credential_configured": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ProfileCapabilities"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "purpose",
+        "protocol",
+        "name",
+        "base_url",
+        "model",
+        "deployment",
+        "api_version",
+        "enabled",
+        "credential_configured",
+        "capabilities",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "asr"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "capabilities": {
+                "properties": {
+                  "max_source_bytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "max_duration_ms": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "capabilities": {
+                "properties": {
+                  "max_source_bytes": {
+                    "type": "null"
+                  },
+                  "max_duration_ms": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ProfileList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelProfile"
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "ErrorInfo": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+$"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "enum": [
+            "not_sent",
+            "submitted",
+            "confirmed",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "delivery"
+      ],
+      "additionalProperties": false
+    },
+    "ErrorEnvelope": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorInfo"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "error",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "Consent": {
+      "type": "object",
+      "properties": {
+        "policy_version": {
+          "const": "ai-data-v1"
+        },
+        "approved": {
+          "const": true
+        }
+      },
+      "required": [
+        "policy_version",
+        "approved"
+      ],
+      "additionalProperties": false
+    },
+    "TranscriptionCreate": {
+      "type": "object",
+      "properties": {
+        "recording_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "expected_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "profile_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "profile_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 35
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "require_timestamps": {
+          "type": "boolean"
+        },
+        "require_speakers": {
+          "type": "boolean"
+        },
+        "consent": {
+          "$ref": "#/$defs/Consent"
+        }
+      },
+      "required": [
+        "recording_id",
+        "expected_sha256",
+        "profile_id",
+        "profile_revision",
+        "consent"
+      ],
+      "additionalProperties": false
+    },
+    "TemplateWrite": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "SummaryCreate": {
+      "type": "object",
+      "properties": {
+        "transcript_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transcript_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "profile_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "profile_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "template": {
+          "$ref": "#/$defs/TemplateWrite"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 35
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consent": {
+          "$ref": "#/$defs/Consent"
+        }
+      },
+      "required": [
+        "transcript_id",
+        "transcript_revision",
+        "profile_id",
+        "profile_revision",
+        "template",
+        "consent"
+      ],
+      "additionalProperties": false
+    },
+    "ProfileTest": {
+      "type": "object",
+      "properties": {
+        "profile_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "enum": [
+            "metadata",
+            "inference"
+          ]
+        },
+        "allow_billable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profile_revision",
+        "mode",
+        "allow_billable"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "inference"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allow_billable": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ProbeResult": {
+      "type": "object",
+      "properties": {
+        "profile_ref": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "mode": {
+          "enum": [
+            "metadata",
+            "inference"
+          ]
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "billable": {
+          "type": "boolean"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "profile_ref",
+        "mode",
+        "status",
+        "billable",
+        "checked_at",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "ResultRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "transcript",
+            "summary"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "Job": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "transcribe",
+            "summarize"
+          ]
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "cancel_requested",
+            "needs_attention",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "preparing",
+            "transcribing",
+            "summarizing",
+            "finalizing",
+            "cancelling",
+            "done"
+          ]
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery": {
+          "enum": [
+            "not_sent",
+            "submitted",
+            "confirmed",
+            "unknown"
+          ]
+        },
+        "recording_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "transcript_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TranscriptRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "result_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "sequence",
+        "phase",
+        "progress",
+        "delivery",
+        "recording_id",
+        "transcript_ref",
+        "profile_ref",
+        "result_ref",
+        "error",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "succeeded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "progress": {
+                "const": 1
+              },
+              "error": {
+                "type": "null"
+              },
+              "result_ref": {
+                "$ref": "#/$defs/ResultRef"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "progress": {
+                "not": {
+                  "const": 1
+                }
+              },
+              "result_ref": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "failed",
+                  "needs_attention"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/ErrorInfo"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "transcribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "transcript_ref": {
+                "type": "null"
+              },
+              "result_ref": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "transcript"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "transcript_ref": {
+                "$ref": "#/$defs/TranscriptRef"
+              },
+              "result_ref": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "summary"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "JobList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Job"
+          },
+          "maxItems": 100
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "Segment": {
+      "type": "object",
+      "properties": {
+        "start_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 8388608
+        },
+        "speaker_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "text",
+        "speaker_id"
+      ],
+      "additionalProperties": false
+    },
+    "Transcript": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "recording_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 35
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 8388608
+        },
+        "segments": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Segment"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "recording_id",
+        "source_sha256",
+        "revision",
+        "duration_ms",
+        "language",
+        "text",
+        "segments",
+        "profile_ref",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "TranscriptEdit": {
+      "type": "object",
+      "properties": {
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 8388608
+        },
+        "segments": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Segment"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "expected_revision",
+        "text",
+        "segments"
+      ],
+      "additionalProperties": false
+    },
+    "TemplateRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "content_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "ActionItem": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "due_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "owner",
+        "due_at"
+      ],
+      "additionalProperties": false
+    },
+    "Summary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "const": 1
+        },
+        "transcript_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transcript_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "template_ref": {
+          "$ref": "#/$defs/TemplateRef"
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 8388608
+        },
+        "action_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActionItem"
+          }
+        },
+        "input_stale": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "transcript_id",
+        "transcript_revision",
+        "template_ref",
+        "profile_ref",
+        "markdown",
+        "action_items",
+        "input_stale",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "EmptyRequest": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "1.0.0-draft.1"
+        },
+        "storage_protocol": {
+          "const": "boa_http_v1"
+        },
+        "model_protocols": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "openai_compatible",
+              "azure_openai"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "model.read",
+              "model.manage",
+              "ai.transcribe",
+              "ai.summarize",
+              "ai.read",
+              "ai.cancel",
+              "transcript.edit",
+              "audio.read"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "observation": {
+          "const": "polling"
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_active_jobs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_profiles": {
+              "const": 100
+            },
+            "control_json_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "template_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "result_text_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "transcript_edit_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "task_deadline_ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "max_active_jobs",
+            "max_profiles",
+            "control_json_bytes",
+            "template_bytes",
+            "result_text_bytes",
+            "transcript_edit_bytes",
+            "task_deadline_ms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "contract_version",
+        "storage_protocol",
+        "model_protocols",
+        "actions",
+        "observation",
+        "limits"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

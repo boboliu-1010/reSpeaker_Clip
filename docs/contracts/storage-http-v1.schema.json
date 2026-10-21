@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:boa:storage:http:v1",
+  "title": "Boa Voice existing storage HTTP v1 payloads",
+  "description": "Documentation snapshot of Server 1.0.1-beta.1. $defs are individual payload contracts; this file does not add runtime routes or replace dynamic validation.",
+  "$defs": {
+    "UploadInit": {
+      "type": "object",
+      "required": [
+        "filename",
+        "size",
+        "sha256",
+        "mime"
+      ],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+          "description": "Server also enforces UTF-8 byte length <=240; maxLength alone counts characters."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bytes. Runtime max_size applies; server JSON parser requires a Python int, not bool/float."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mime": {
+          "type": "string",
+          "enum": [
+            "audio/wav",
+            "audio/x-wav",
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aac"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "UploadRecord": {
+      "type": "object",
+      "required": [
+        "id",
+        "filename",
+        "size",
+        "sha256",
+        "mime",
+        "chunk_size",
+        "state",
+        "created",
+        "expires",
+        "error"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+          "description": "Server also enforces UTF-8 byte length <=240; maxLength alone counts characters."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bytes. Runtime max_size applies; server JSON parser requires a Python int, not bool/float."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mime": {
+          "type": "string",
+          "enum": [
+            "audio/wav",
+            "audio/x-wav",
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aac"
+          ]
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "uploading",
+            "finalizing",
+            "complete",
+            "failed"
+          ]
+        },
+        "created": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Unix seconds, may be fractional."
+        },
+        "expires": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Unix seconds; does not expire completed recordings."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "PartReceipt": {
+      "type": "object",
+      "required": [
+        "index",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "UploadStatus": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/UploadRecord"
+        },
+        {
+          "type": "object",
+          "required": [
+            "parts"
+          ],
+          "properties": {
+            "parts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PartReceipt"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Recording": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/UploadRecord"
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "complete"
+            }
+          }
+        }
+      ]
+    },
+    "RecordingList": {
+      "type": "object",
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Recording"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "HttpError": {
+      "type": "object",
+      "required": [
+        "detail"
+      ],
+      "properties": {
+        "detail": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

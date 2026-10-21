@@ -3,6 +3,16 @@
 Entry point for all reSpeaker Clip documentation. English docs are canonical;
 the only maintained translation is `tests/clip/README_zh.md`.
 
+## Boa Voice module and protocol design
+
+The Boa Voice working draft (Chinese) defines app module ownership and contracts before further development:
+
+- [Module and protocol design review](superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)
+- [Existing storage HTTP v1 contract](contracts/storage-http-v1.md), [payload schema](contracts/storage-http-v1.schema.json), [examples](contracts/examples/storage-http-v1.json)
+- [Clip device boundary and compatibility gaps](contracts/clip-device-v1.md)
+
+These separate current wire behavior from proposed app interfaces; they do not replace the firmware protocol sources below.
+
 ## Where do I start?
 
 | I want to... | Go to |

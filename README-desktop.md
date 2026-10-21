@@ -2,6 +2,10 @@
 
 本分支在 reSpeaker Clip 工程中增加个人音频工作台。桌面端使用 Flutter，服务端使用 Python / FastAPI、SQLite 和磁盘文件；两者通过 HTTP 通信，可独立启动。普通音频管理不需要 Clip 硬件。
 
+## 模块与协议设计评审
+
+当前保持 Beta 3 功能，先评审 [模块边界与协议设计](docs/superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)，再写实现计划。外部接口分别见 [现有存储 HTTP v1](docs/contracts/storage-http-v1.md) 与 [Clip 设备契约](docs/contracts/clip-device-v1.md)。草案接口不表示已实现，也不授权开始重构。
+
 ## 本地开发与交付
 
 本地开发直接运行 `bash scripts/run-desktop.sh`，使用 Flutter 调试与热重载，不制作或反复安装 DMG。当前开发分支为 `boa/desktop-beta3`；本机功能验收通过后，再统一生成 Beta DMG 做交付验收，用户确认后才上传。下方下载入口仍指向已发布的 Beta 2。

@@ -62,3 +62,6 @@ ref/
 
 # Patent disclosure outputs (skill)
 outputs/
+
+# Local desktop installers
+/dist/

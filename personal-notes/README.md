@@ -4,6 +4,8 @@
 
 ## 2026-10-21：Boa Voice 定制设计评审
 
+已按官方流程选定服务端转写/摘要：[AI HTTP v1 协议草案](../docs/contracts/ai-http-v1.md)。包含自定义模型 endpoint、凭据托管、任务/取消/幂等、转写版本和摘要结果。仅定义协议，尚未开发服务端 AI 接口。
+
 先看[基于官方 App 的修改与增强清单](../docs/product/official-app-customization.md)，再看[模块与协议设计](../docs/superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。重点是自定义 endpoint、权限控制、存储控制和自选模型。当前分支只同步文档；以下旧开发记录保留为历史，不能视为最新软件状态。
 
 目标：开发可自行控制的 Clip Notes：无 Clip 时用手机录音，按需调用自选模型；硬件到货后接通设备录音、下载和统一管理。

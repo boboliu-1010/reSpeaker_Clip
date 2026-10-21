@@ -4,7 +4,7 @@
 
 ## 模块与协议设计评审
 
-当前保持 Beta 3 功能，先评审 [模块边界与协议设计](docs/superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)，再写实现计划。外部接口分别见 [现有存储 HTTP v1](docs/contracts/storage-http-v1.md) 与 [Clip 设备契约](docs/contracts/clip-device-v1.md)。草案接口不表示已实现，也不授权开始重构。
+当前保持 Beta 3 功能，先看 [基于官方 App 的修改与增强清单](docs/product/official-app-customization.md)：明确自定义 endpoint、权限、存储、模型等要改什么，区分 App、服务端与固件责任。范围确定后，再评审 [模块边界与协议设计](docs/superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md) 并写实现计划。外部接口分别见 [现有存储 HTTP v1](docs/contracts/storage-http-v1.md) 与 [Clip 设备契约](docs/contracts/clip-device-v1.md)。草案接口不表示已实现，也不授权开始重构。
 
 ## 本地开发与交付
 

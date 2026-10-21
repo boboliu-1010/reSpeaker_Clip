@@ -1,0 +1,201 @@
+{
+  "note": "Synthetic protocol examples, no credentials or private audio contents.",
+  "cases": [
+    {
+      "name": "create request",
+      "schema": "UploadInit",
+      "http": {
+        "method": "POST",
+        "path": "/api/audio/uploads"
+      },
+      "payload": {
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav"
+      }
+    },
+    {
+      "name": "create response",
+      "schema": "UploadStatus",
+      "http": {
+        "status": 201
+      },
+      "payload": {
+        "id": "0dcaed10342c49d689a6f32ecb3e409e",
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav",
+        "chunk_size": 5242880,
+        "state": "uploading",
+        "created": 1792580400.0,
+        "expires": 1792666800.0,
+        "error": null,
+        "parts": []
+      }
+    },
+    {
+      "name": "part response",
+      "schema": "PartReceipt",
+      "http": {
+        "status": 200
+      },
+      "payload": {
+        "index": 0,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "size": 160044
+      }
+    },
+    {
+      "name": "uploaded parts status",
+      "schema": "UploadStatus",
+      "http": {
+        "status": 200
+      },
+      "payload": {
+        "id": "0dcaed10342c49d689a6f32ecb3e409e",
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav",
+        "chunk_size": 5242880,
+        "state": "uploading",
+        "created": 1792580400.0,
+        "expires": 1792666800.0,
+        "error": null,
+        "parts": [
+          {
+            "index": 0,
+            "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+            "size": 160044
+          }
+        ]
+      }
+    },
+    {
+      "name": "completion accepted, not finished",
+      "schema": "UploadRecord",
+      "http": {
+        "status": 202
+      },
+      "payload": {
+        "id": "0dcaed10342c49d689a6f32ecb3e409e",
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav",
+        "chunk_size": 5242880,
+        "state": "finalizing",
+        "created": 1792580400.0,
+        "expires": 1792666800.0,
+        "error": null
+      }
+    },
+    {
+      "name": "completion already finished",
+      "schema": "Recording",
+      "http": {
+        "status": 200
+      },
+      "payload": {
+        "id": "0dcaed10342c49d689a6f32ecb3e409e",
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav",
+        "chunk_size": 5242880,
+        "state": "complete",
+        "created": 1792580400.0,
+        "expires": 1792666800.0,
+        "error": null
+      }
+    },
+    {
+      "name": "complete status with parts cleaned",
+      "schema": "UploadStatus",
+      "http": {
+        "status": 200
+      },
+      "payload": {
+        "id": "0dcaed10342c49d689a6f32ecb3e409e",
+        "filename": "会议录音.wav",
+        "size": 160044,
+        "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+        "mime": "audio/wav",
+        "chunk_size": 5242880,
+        "state": "complete",
+        "created": 1792580400.0,
+        "expires": 1792666800.0,
+        "error": null,
+        "parts": []
+      }
+    },
+    {
+      "name": "recording list",
+      "schema": "RecordingList",
+      "http": {
+        "status": 200
+      },
+      "payload": {
+        "items": [
+          {
+            "id": "0dcaed10342c49d689a6f32ecb3e409e",
+            "filename": "会议录音.wav",
+            "size": 160044,
+            "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+            "mime": "audio/wav",
+            "chunk_size": 5242880,
+            "state": "complete",
+            "created": 1792580400.0,
+            "expires": 1792666800.0,
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "authorization failure",
+      "schema": "HttpError",
+      "http": {
+        "status": 401
+      },
+      "payload": {
+        "detail": "Unauthorized"
+      }
+    },
+    {
+      "name": "validation failure",
+      "schema": "HttpError",
+      "http": {
+        "status": 422
+      },
+      "payload": {
+        "detail": [
+          {
+            "loc": [
+              "path",
+              "index"
+            ],
+            "msg": "Input should be a valid integer",
+            "type": "int_parsing"
+          }
+        ]
+      }
+    }
+  ],
+  "download_example": {
+    "requestHeaders": {
+      "Range": "bytes=1000-",
+      "If-Range": "\"72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747\""
+    },
+    "responseStatus": 206,
+    "responseHeaders": {
+      "Content-Range": "bytes 1000-160043/160044",
+      "Content-Length": "159044",
+      "Content-Type": "audio/wav",
+      "Accept-Ranges": "bytes",
+      "ETag": "\"72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747\""
+    }
+  }
+}

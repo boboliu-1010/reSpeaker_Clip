@@ -3,6 +3,14 @@
 Entry point for all reSpeaker Clip documentation. English docs are canonical;
 the only maintained translation is `tests/clip/README_zh.md`.
 
+## Boa Voice customization design
+
+- [Official-app customization: endpoints, permissions, storage and models](product/official-app-customization.md)
+- [Module and protocol review draft](superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)
+- [Storage HTTP v1 contract](contracts/storage-http-v1.md) and [Clip device boundary](contracts/clip-device-v1.md)
+
+This branch adds review documents only. The local Beta 3 app/server implementation and its verification records are not included in this branch.
+
 ## Where do I start?
 
 | I want to... | Go to |

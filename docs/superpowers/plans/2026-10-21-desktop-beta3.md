@@ -24,7 +24,7 @@ Preserve existing audio/configuration; no permanent deletion; retain sandbox; no
 - [x] 1. Extend library metadata/rename/export/trash/restore. First write real-file tests and observe failure; implement and verify compatibility. Files: local_library.dart, local_library_management_test.dart.
 - [x] 2. Add explicit manual jobs, per-item retry, progress/errors and removal guard. First write queue-policy/restart tests; update backup_queue.dart and retain previous tests.
 - [x] 3. Integrate details/actions/trash and synchronization views, input selection/electric level/save/recovery, readable Clip status. Test firmware parser and helper behavior; use existing packages. Files: desktop_page.dart, desktop_clip_page.dart plus focused dialogs/helpers; macOS entitlements read-write.
-- [ ] 4. Run scoped tests/analysis and native regression audit; build Beta 3, package new DMG, install and operate recording/file/sync UI. Record evidence and hardware limits, request user installation acceptance before publication.
+- [x] 4. Run scoped tests/analysis and native regression audit; build Beta 3, package new DMG, install and operate recording/file/sync UI. Record evidence and hardware limits, request user installation acceptance before publication.
 
 ## Ledger
 
@@ -44,3 +44,6 @@ Preserve existing audio/configuration; no permanent deletion; retain sandbox; no
 
 - Task 4: automated checks and final local DMG/install completed; 31 Flutter tests pass, unchanged mobile smoke fails; desktop analysis clean and native scanner 2 pass. Installed native audit: 45 Mach-O, zero external dependency errors.
 - Task 4: BLOCKED UI continuation: CUA reports Mac locked. Requested user manual unlock; final payload launch, recovery UI and microphone acceptance remain pending. No push/publication.
+
+- Task 4 resumed: user unlocked and confirmed microphone permission action. Final installed payload launched/restarted; actual mic recording/electric level/pause/resume/cancel then restart/recovery/playback passed; exact bytes/hash/source preserved. Device enumeration 2 inputs and explicit MacBook mic recording/save passed.
+- Task 4 local acceptance: complete within the four-group scope. Known unchanged mobile smoke failure and real Clip hardware limit remain explicit. No publication; new user workflow is direct Flutter local development, DMG only for delivery after readiness.

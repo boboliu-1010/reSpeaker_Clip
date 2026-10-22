@@ -6,6 +6,8 @@
 
 配套：[JSON Schema](ai-http-v1.schema.json)、[正反例与交互样例](examples/ai-http-v1.json)、[模块设计](../superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。这些文件描述目标协议，不是当前服务的路由清单或已通过联调的证明。
 
+**最新产品约束：[统一总览](../product/boa-voice-overview.md)。** 只保留用户/开发者两角色，私有音频与结果按用户隔离，模型配置和任务运行维护归开发者。下述子任务 wire 仍为 draft.1；自动串联流程、统一身份接入尚待冻结，Schema 和样例不证明这些新增能力已实现。
+
 ## 1. 架构与范围
 
 ```mermaid
@@ -18,20 +20,19 @@ sequenceDiagram
     Clip->>App: 录音下载/采集，保存并校验
     App->>API: 现有分片上传，complete 后查询
     API-->>App: complete + recording_id + sha256
-    App->>API: 创建转写任务 + profile/revision + 用户许可
+    App->>API: 发起处理 + 用户许可（组合入口待定义）
     API-->>App: 202 Job + Location
     Worker->>Model: 识别音频，归一化结果
-    App->>API: 查询 Job，再获取 Transcript
-    App->>API: 创建摘要任务，指定转写版本和模板
+    Worker->>API: 保存转写，按固定版本创建摘要子任务
     Worker->>Model: 文本 + 模板
-    App->>API: 查询 Job，再获取 Summary
+    App->>API: 查询任务并获取转写/摘要
 ```
 
 - **App：**设备/麦克风、本地副本、播放、上传、用户许可、任务查询、结果缓存与展示。离线录音/播放不依赖后台；App 退出不取消已受理的服务端任务。
 - **Server：**鉴权、模型档案/凭据、入参和资源校验、任务持久化、排队、结果版本与配额。首期可在现有 Python 服务内增加模块和独立 Worker，不要求拆微服务。
 - **Worker：**取得已完成的服务端音频，经受控解码/分段调用 Provider；结果与任务终态在同一事务提交。不得通过 App 回调维持任务运行。
 - **Provider：**在服务端适配不同供应商的路径、鉴权、限制和响应；App 不直接对接供应商。
-- 首期固定转写、摘要为**两个独立任务**。一键“转写并摘要”由 App 编排：转写成功后提交摘要；不在上传完成时默认触发计费。服务端自动流水线、SSE、批量任务、公开分享与结果删除另行设计。
+- 转写和摘要继续是两个可独立定义/重试的子任务；目标改为 **Server 串联**“转写后摘要”，App 无须持续运行或逐步创建任务。组合流程的受理接口、许可、父子任务幂等和失败语义尚待补充；下列独立子任务路由不是完整流水线契约。上传不默认触发计费，开发者也不逐条手工处理。SSE、批量和公开分享不列入当前必需范围。
 
 另见 [实验直传状态](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 与 [Boa 桥接契约](clip-ingest-app-server-bridge.md)：实验接收端已能保存原始 Clip 片段，但标准化入 Boa 库尚未实现；完成后生成 canonical recording_id + SHA，再进入本稿仍待实现的转写/摘要流程。设备凭据无权直接调用模型管理或 AI 任务接口；现有 App 上传路径保持。直传后的自动 AI 需要单独的用户许可与幂等策略，本稿不默认开启。
 
@@ -41,9 +42,9 @@ sequenceDiagram
 | --- | --- |
 | 基路径 | 同一服务根地址下 `/api/boa/v1`；音频继续 `/api/audio/...` |
 | 认证 | `Authorization: Bearer <boa-token>`；不是模型 API key，也不是 SenseCraft token |
-| 首期身份 | 单用户 token 映射到一个 personal principal；拥有本部署所开放的动作。当前旧服务尚无细分 scope，不声称已提供多人隔离 |
+| 身份目标 | 统一业务身份，角色仅 user/developer；当前旧共享 token 仍为单用户，隔离与身份迁移尚待实现 |
 | 动作 | `model.read`、`model.manage`、`ai.transcribe`、`ai.summarize`、`ai.read`、`ai.cancel`、`transcript.edit`；读源音频还需 `audio.read` |
-| 资源归属 | 每次校验 job/result/profile/source 的归属与动作；他人或不存在资源统一 404，自己的资源但动作不足为 403；缺失/无效 token 为 401 |
+| 资源归属 | 每次校验 job/result/source 的 owner_user_id 与动作；本文 owner_id 对应同一用户归属。开发者发布的脱敏模型目录可共享，不代表用户内容共享；他人或不存在资源统一 404，自己的资源但动作不足为 403；缺失/无效 token 为 401 |
 | JSON | UTF-8、snake_case；成功直接返回对象，不包 `{code,data}`；错误用第 9 节 envelope。字节不走此 JSON API |
 | 时间/版本 | UTC RFC3339 `date-time`；时长/时间轴为整数毫秒；大小为字节；revision 为从 1 开始的整数 |
 | ID | 新 profile/job/transcript/summary 为 UUID；`recording_id` 沿用存储服务 32 位小写 hex。不是本机 AudioId、设备 session 或供应商 task id |
@@ -52,7 +53,7 @@ sequenceDiagram
 
 App 仍按需请求麦克风/蓝牙等系统权限。`consent={policy_version:"ai-data-v1",approved:true}` 是对本次输入与指定模型档案版本的数据发送确认；服务记录 principal、服务端受理时间、输入/目标版本和 policy_version。它不是 ACL 授权的替代，也不是伪造一个开关即可访问别人的音频。
 
-模型配置管理仅对管理动作开放。普通使用者可读脱敏档案并选模型，无权写 endpoint/密钥。自用 token 可兼任管理身份；若未来发普通 token，必须在 Server 强制限制，不能仅隐藏设置页。
+`model.manage` 仅 developer 可用，配置入口位于受控后台/CLI；user 可读开发者发布的脱敏档案并选模型，不写 endpoint/密钥。处理任务继承源录音所属用户，查询、编辑、取消、幂等和缓存均不得跨用户；旧共享 token 不自动升级为开发者身份。
 
 ## 3. 接口目录
 

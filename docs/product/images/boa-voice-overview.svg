@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="780" viewBox="0 0 1440 780">
+<defs><marker id="green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10" fill="#15803d"/></marker><marker id="amber" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10" fill="#b45309"/></marker><marker id="gray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10" fill="#64748b"/></marker></defs>
+<rect width="1440" height="780" fill="#f8fafc"/>
+<g font-family="PingFang SC,Heiti SC,Arial Unicode MS,sans-serif">
+<text x="70" y="56" font-size="32" fill="#0f172a" font-weight="600" text-anchor="start">Boa Voice：当前链路与目标架构</text>
+<path d="M72,101 H122" stroke="#15803d" stroke-width="3"/>
+<text x="136" y="108" font-size="20" fill="#334155" font-weight="normal" text-anchor="start">已验证音频链路</text>
+<path d="M394,101 H444" stroke="#b45309" stroke-width="3"/>
+<text x="458" y="108" font-size="20" fill="#334155" font-weight="normal" text-anchor="start">实验设备链路</text>
+<path d="M716,101 H766" stroke="#64748b" stroke-width="3" stroke-dasharray="8 5"/>
+<text x="780" y="108" font-size="20" fill="#334155" font-weight="normal" text-anchor="start">待开发能力</text>
+<rect x="70" y="180" width="310" height="150" rx="20" fill="#ecfdf5" stroke="#86b897" stroke-width="2"/>
+<text x="225.0" y="223" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">用户 App</text>
+<text x="225.0" y="264" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">桌面录音 / 文件管理已有</text>
+<text x="225.0" y="297" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">手机待自建服务完整验收</text>
+<rect x="560" y="180" width="340" height="150" rx="20" fill="#eff6ff" stroke="#93b4db" stroke-width="2"/>
+<text x="730.0" y="223" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">业务 Server · 9528</text>
+<text x="730.0" y="264" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">音频上传 / 下载已验证</text>
+<text x="730.0" y="297" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">用户隔离 / 固件库待开发</text>
+<rect x="1080" y="180" width="290" height="150" rx="20" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1225.0" y="223" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">后台自动任务</text>
+<text x="1225.0" y="264" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">转码 · 转写 · 摘要 · 校验</text>
+<text x="1225.0" y="297" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">Azure / 自定义模型 · 待开发</text>
+<rect x="70" y="500" width="310" height="150" rx="20" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
+<text x="225.0" y="543" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">Clip 录音设备</text>
+<text x="225.0" y="584" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">当前为 HTTPS 实验固件</text>
+<text x="225.0" y="617" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">应用层 BLE OTA 被禁用</text>
+<rect x="560" y="500" width="340" height="150" rx="20" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
+<text x="730.0" y="543" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">Clip 接收端 · 9527</text>
+<text x="730.0" y="584" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">原始录音接收已有</text>
+<text x="730.0" y="617" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">进入业务音频库的桥接待开发</text>
+<rect x="1080" y="500" width="290" height="150" rx="20" fill="#f5f3ff" stroke="#b7a2d6" stroke-width="2"/>
+<text x="1225.0" y="543" font-size="25" fill="#0f172a" font-weight="600" text-anchor="middle">开发者后台</text>
+<text x="1225.0" y="584" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">模型 / 服务配置 · 固件发布</text>
+<text x="1225.0" y="617" font-size="19" fill="#334155" font-weight="normal" text-anchor="middle">后台任务部署与维护</text>
+<path d="M395,255 H545" stroke="#15803d" stroke-width="3" fill="none" marker-end="url(#green)" marker-start="url(#green)"/>
+<text x="470" y="223" font-size="18" fill="#334155" font-weight="normal" text-anchor="middle">音频上传 / 下载</text>
+<path d="M915,255 H1065" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#gray)" marker-start="url(#gray)" stroke-dasharray="9 7"/>
+<text x="990" y="223" font-size="18" fill="#334155" font-weight="normal" text-anchor="middle">任务 / 结果</text>
+<path d="M225,345 V485" stroke="#b45309" stroke-width="3" fill="none" marker-end="url(#amber)" marker-start="url(#amber)"/>
+<text x="250" y="410" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">BLE 基础控制</text>
+<text x="250" y="437" font-size="17" fill="#334155" font-weight="normal" text-anchor="start">仍需完整联调</text>
+<path d="M395,575 H545" stroke="#b45309" stroke-width="3" fill="none" marker-end="url(#amber)"/>
+<text x="470" y="541" font-size="18" fill="#334155" font-weight="normal" text-anchor="middle">HTTPS 录音直传</text>
+<path d="M730,485 V345" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#gray)" stroke-dasharray="9 7"/>
+<text x="755" y="407" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">归属 + 解码 + 入库</text>
+<text x="755" y="435" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">桥接待开发</text>
+<path d="M1225,485 V345" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#gray)" stroke-dasharray="9 7"/>
+<text x="1250" y="407" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">开发者维护</text>
+<text x="1250" y="435" font-size="17" fill="#334155" font-weight="normal" text-anchor="start">Server 自动执行</text>
+<text x="70" y="719" font-size="20" fill="#475569" font-weight="normal" text-anchor="start">图中虚线表示目标能力；9527 与 9528 尚未打通，不能把原始上传当作 App 已可用音频。</text>
+</g></svg>

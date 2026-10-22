@@ -1,5 +1,7 @@
 # Boa Voice 文件存储 HTTP v1 契约
 
+**现状与目标：[统一总览](../product/boa-voice-overview.md)。** 本文记录现有单用户传输契约，不代表多人隔离已经实现。后续统一用户身份，补 owner_user_id 与全链路归属检查；旧数据明确归属后迁移，保留传输路径与语义。
+
 **性质：当前实现的协议基线，不是新接口。** 对应 Server `1.0.1-beta.1`，源码内容树 `b63c783b3757b8e3183a157d7ef56fafd6475775`。若将来实现变化，需连同契约和用例更新。
 
 源码：[app.py](../../services/audio_storage/app.py)、[store.py](../../services/audio_storage/store.py)、[StorageClient](../../mobile/app/lib/src/features/audio_storage/storage_client.dart)。模块间的类型适配见 [设计草案](../superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。

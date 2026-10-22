@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0-draft.2",
+  "contract_version": "1.0.0-draft.3",
   "example_only": true,
   "notes": [
     "All IDs, images, credentials and responses are illustrative; firmware endpoints are not deployed.",
@@ -16,24 +16,16 @@
         "method": "GET",
         "path": "/api/boa/v1/firmware/capabilities",
         "headers": {
-          "Authorization": "Bearer <operator-token>"
+          "Authorization": "Bearer <user-token>"
         }
       },
       "response": {
         "status": 200,
         "body": {
           "server_id": "11111111-1111-1111-1111-111111111111",
-          "protocol_version": "1.0.0-draft.2",
+          "protocol_version": "1.0.0-draft.3",
           "principal_id": "22222222-2222-2222-2222-222222222222",
-          "role": "operator",
-          "grants": {
-            "device_refs": [
-              "33333333-3333-3333-3333-333333333333"
-            ],
-            "profile_ids": [
-              "44444444-4444-4444-4444-444444444444"
-            ]
-          },
+          "role": "user",
           "limits": {
             "max_package_bytes": 33554432,
             "max_unpacked_bytes": 67108864,
@@ -46,7 +38,8 @@
               "profile_id": "44444444-4444-4444-4444-444444444444",
               "policy_revision": "55555555-5555-5555-5555-555555555555"
             }
-          ]
+          ],
+          "user_id": "22222222-2222-2222-2222-222222222222"
         }
       }
     },
@@ -56,7 +49,7 @@
         "method": "POST",
         "path": "/api/boa/v1/firmware/upgrade-authorizations",
         "headers": {
-          "Authorization": "Bearer <operator-token>",
+          "Authorization": "Bearer <user-token>",
           "Content-Type": "application/json",
           "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         },
@@ -104,7 +97,8 @@
           "reported_phase": null,
           "last_event_sequence": 0,
           "outcome": null,
-          "result_evidence": null
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
         },
         "headers": {
           "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:1\""
@@ -117,7 +111,7 @@
         "method": "POST",
         "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/start",
         "headers": {
-          "Authorization": "Bearer <operator-token>",
+          "Authorization": "Bearer <user-token>",
           "Content-Type": "application/json",
           "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:1\"",
           "Idempotency-Key": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -189,7 +183,8 @@
           "reported_phase": null,
           "last_event_sequence": 0,
           "outcome": null,
-          "result_evidence": null
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
         },
         "headers": {
           "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:2\""
@@ -202,7 +197,7 @@
         "method": "POST",
         "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/cancel",
         "headers": {
-          "Authorization": "Bearer <operator-token>",
+          "Authorization": "Bearer <user-token>",
           "Content-Type": "application/json",
           "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:2\"",
           "Idempotency-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -229,7 +224,7 @@
         "method": "POST",
         "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/cancel",
         "headers": {
-          "Authorization": "Bearer <operator-token>",
+          "Authorization": "Bearer <user-token>",
           "Content-Type": "application/json",
           "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:1\"",
           "Idempotency-Key": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
@@ -268,7 +263,8 @@
           "reported_phase": null,
           "last_event_sequence": 0,
           "outcome": null,
-          "result_evidence": null
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
         },
         "headers": {
           "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:2\""
@@ -276,12 +272,12 @@
       }
     },
     {
-      "name": "admin_resolves_unknown_result_independent_case",
+      "name": "developer_resolves_unknown_result_independent_case",
       "request": {
         "method": "POST",
         "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/resolve",
         "headers": {
-          "Authorization": "Bearer <admin-token>",
+          "Authorization": "Bearer <developer-token>",
           "Content-Type": "application/json",
           "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:9\"",
           "Idempotency-Key": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
@@ -351,7 +347,7 @@
           "outcome": "succeeded",
           "result_evidence": {
             "source": "app_report",
-            "resolved_by": "example-admin",
+            "resolved_by": "example-developer",
             "running_images": [
               {
                 "image_index": 0,
@@ -361,7 +357,8 @@
               }
             ],
             "device_idle": true
-          }
+          },
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
         },
         "headers": {
           "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:10\""
@@ -369,71 +366,52 @@
       }
     },
     {
-      "name": "grant_update_requires_revision",
+      "name": "user_cannot_read_another_users_upgrade",
       "request": {
-        "method": "PATCH",
-        "path": "/api/boa/v1/firmware/principals/22222222-2222-2222-2222-222222222222/grants",
+        "method": "GET",
+        "path": "/api/boa/v1/firmware/upgrades/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         "headers": {
-          "Authorization": "Bearer <admin-token>",
-          "Content-Type": "application/json",
-          "If-Match": "\"principal:22222222-2222-2222-2222-222222222222:1\""
-        },
-        "body": {
-          "role": "operator",
-          "device_refs": [
-            "33333333-3333-3333-3333-333333333333"
-          ],
-          "profile_ids": [
-            "44444444-4444-4444-4444-444444444444"
-          ]
+          "Authorization": "Bearer <user-token>"
         }
       },
       "response": {
-        "status": 200,
+        "status": 404,
         "body": {
-          "principal_id": "22222222-2222-2222-2222-222222222222",
-          "label": "Example operator",
-          "role": "operator",
-          "grants": {
-            "device_refs": [
-              "33333333-3333-3333-3333-333333333333"
-            ],
-            "profile_ids": [
-              "44444444-4444-4444-4444-444444444444"
-            ]
-          },
-          "state": "active",
-          "revision": 2
-        },
-        "headers": {
-          "ETag": "\"principal:22222222-2222-2222-2222-222222222222:2\""
+          "error": {
+            "code": "not_found",
+            "message": "Resource not found",
+            "retryable": false,
+            "request_id": "example-owner-check"
+          }
         }
       }
     },
     {
-      "name": "stale_grants_are_not_overwritten",
+      "name": "user_cannot_publish_firmware",
       "request": {
-        "method": "PATCH",
-        "path": "/api/boa/v1/firmware/principals/22222222-2222-2222-2222-222222222222/grants",
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/releases",
         "headers": {
-          "Authorization": "Bearer <admin-token>",
+          "Authorization": "Bearer <user-token>",
           "Content-Type": "application/json",
-          "If-Match": "\"principal:22222222-2222-2222-2222-222222222222:1\""
+          "Idempotency-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
         },
         "body": {
-          "role": "viewer",
-          "device_refs": [],
-          "profile_ids": []
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "channel": "beta",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "notes": "Illustrative only"
         }
       },
       "response": {
-        "status": 412,
+        "status": 403,
         "body": {
           "error": {
-            "code": "revision_conflict",
-            "message": "Refresh the principal before editing.",
+            "code": "forbidden",
+            "message": "Developer permission required",
             "retryable": false,
-            "request_id": "example-request-8"
+            "request_id": "example-role-check"
           }
         }
       }

@@ -1,5 +1,7 @@
 # Boa 桌面端 / Server / HTTPS 固件集成分支
 
+**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：配图说明现状、两类角色、用户隔离、endpoint 与后续开发；其余设计与协议为开发附录。
+
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 
 开发机为 `bobo@100.58.19.213`。Boa 音频库现使用 **`https://100.58.19.213:9528`**，Mac 上桌面同一客户端已完成真实跨机器音频传输；不依赖 SSH 转发。见 [当前部署与证书说明](docs/development/server-100.58.19.213.md)、[桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。Roger 的 9527 仍是独立 Clip 接收端；已安装 GUI App 尚未配置这份开发证书。早期 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md) 保留当时的 loopback 状态。
@@ -58,7 +60,7 @@ bash scripts/run-desktop.sh
 
 ## 后续接入顺序
 
-新增完整首版需求：先读 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约 draft.2](docs/contracts/firmware-http-v1.md)。已按确认方向补齐 endpoint、独立 start/cancel/resolve、设备/授权/profile/策略接口及 [请求响应样例](docs/contracts/examples/firmware-http-v1.json)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计；未部署固件 API 或刷机，硬件验收条件仍待核实。
+新增完整首版需求：开发细节参考 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约 draft.3](docs/contracts/firmware-http-v1.md)。已按确认方向补齐 endpoint、独立 start/cancel/resolve、设备/授权/profile/策略接口及 [请求响应样例](docs/contracts/examples/firmware-http-v1.json)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计；未部署固件 API 或刷机，硬件验收条件仍待核实。
 
 1. 审核 [Clip → App/Server 桥接契约](docs/contracts/clip-ingest-app-server-bridge.md) 与 [直传设计](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)。
 2. 在 Server 实现原始录音接收、归属、可恢复转换与标准入库；保留现有 `/api/audio` 接口。

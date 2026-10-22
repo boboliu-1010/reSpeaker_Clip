@@ -55,6 +55,6 @@
 
 **Interfaces:** Consumes reviewed tree and test outputs; produces a clean committed local branch.
 
-- [ ] Fresh whole-branch review checks preservation, dependencies, startup docs and unimplemented-bridge boundary.
-- [ ] Resolve material integration findings with a reproducing test before fixes; defer minor observations explicitly.
-- [ ] Confirm experiment ancestry, clean worktree and unchanged original desktop branch; do not publish or rewrite existing remote branches.
+- [x] Fresh whole-branch review checks preservation, dependencies, startup docs and unimplemented-bridge boundary.
+- [x] Resolve material integration findings with a reproducing test before fixes; defer minor observations explicitly.
+- [x] Confirm experiment ancestry, clean worktree and unchanged original desktop branch; do not publish or rewrite existing remote branches.

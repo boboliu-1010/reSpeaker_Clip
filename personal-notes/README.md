@@ -2,6 +2,10 @@
 
 # reSpeaker Clip 本地调试项目
 
+## 2026-10-22：Clip 直传方案补充
+
+新增[Clip 直接联网上传 Server 方案](../docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)，列清固件 STA/TLS/队列、配网与设备绑定、原始 Opus 接收/转换、完整回执及数据保留；作为独立可选路线，保留 App 中转。仅设计，未开发/刷机，最终 wire 和资源预算仍须评审验证。
+
 ## 2026-10-21：Boa Voice 定制设计评审
 
 已按官方流程选定服务端转写/摘要：[AI HTTP v1 协议草案](../docs/contracts/ai-http-v1.md)。包含自定义模型 endpoint、凭据托管、任务/取消/幂等、转写版本和摘要结果。仅定义协议，尚未开发服务端 AI 接口。

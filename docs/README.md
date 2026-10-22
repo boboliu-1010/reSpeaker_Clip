@@ -7,6 +7,7 @@ the only maintained translation is `tests/clip/README_zh.md`.
 
 - [Official-app customization: endpoints, permissions, storage and models](product/official-app-customization.md)
 - [Server transcription and summary HTTP v1 draft](contracts/ai-http-v1.md), [schema](contracts/ai-http-v1.schema.json), [fixtures](contracts/examples/ai-http-v1.json) — server-owned model endpoints, credentials and persistent AI jobs; not implemented
+- [Optional Clip direct-to-server design](superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) — firmware, provisioning/authentication, HTTPS raw-audio ingest and recovery; design only, not wire-frozen
 - [Module and protocol review draft](superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)
 - [Storage HTTP v1 contract](contracts/storage-http-v1.md) and [Clip device boundary](contracts/clip-device-v1.md)
 

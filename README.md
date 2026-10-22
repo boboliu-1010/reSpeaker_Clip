@@ -8,7 +8,7 @@ USB, AT-command control, and UDP file transfer.
 
 ## macOS desktop and audio storage
 
-This is the unpublished `boa/desktop-https-integration` branch: HTTPS experiment firmware plus the preserved Boa Voice Beta 3 macOS workspace and HTTP audio storage service. Start with the [integration guide and runtime boundaries](README-integration.md), then [desktop and server setup](README-desktop.md). Historical release packages do not contain this integration branch.
+This is the unpublished `boa/desktop-https-integration` branch: HTTPS experiment firmware plus the preserved Boa Voice Beta 3 macOS workspace and HTTP audio storage service. Start with the [integration guide and runtime boundaries](README-integration.md), then [desktop and server setup](README-desktop.md). Historical release packages do not contain this integration branch. The audio Server has since been deployed to the [designated development machine](docs/development/server-100.58.19.213.md); server-internal tests pass, while Mac access remains blocked by SSH forwarding policy.
 
 The hardware/features below describe the default AP/USB firmware configuration. The HTTPS experimental overlay instead uses Station mode and disables USB MSC; see the integration guide before device testing.
 

@@ -1,6 +1,8 @@
 # Boa 桌面端 / Server / HTTPS 固件集成分支
 
-分支：`boa/desktop-https-integration`。仅本地集成、构建和回归，未发布、未安装、未刷机。
+分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
+
+开发机为 `bobo@100.58.19.213`，见 [部署与使用说明](docs/development/server-100.58.19.213.md) 和 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md)。SSH 当前禁止端口转发，Mac/App 的跨机器连接尚待管理员处理。
 
 ## 集成来源
 

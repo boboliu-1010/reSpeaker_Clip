@@ -1,10 +1,10 @@
 # Boa Voice 固件管理设计
 
-**版本：0.1 评审草案｜日期：2026-10-22｜代码基线：`a77fa83`。**
+**版本：0.2 协议修订稿｜日期：2026-10-22｜代码基线：`a77fa83`。**
 
 用户已选择首版同时包含 **自建 Server 固件库、版本分发、权限管理和 App 手动升级**。本文件是实施前的产品与模块设计，不表示这些新增功能已经实现；沿用“先定义协议和模块接口”的要求。HTTP 与应用接口见 [固件管理契约](../../contracts/firmware-http-v1.md)。
 
-**审阅入口：**先看 [功能与协议调整清单](../../product/firmware-management-review.md)，其中列出产品建议、现有接口缺口和工程待核实项。清单中的建议尚未确认，不自动覆盖本稿。
+**审阅入口：**先看 [功能与协议调整清单](../../product/firmware-management-review.md)，其中列出产品建议、现有接口缺口和工程待核实项。已按用户要求将 A-01～A-08 接口调整纳入 HTTP 契约 draft.2；产品细节和硬件核实项仍按文档列明状态，不把接口修订当作功能已实现。
 
 ## 1. 当前事实
 
@@ -42,6 +42,7 @@ App UI → FirmwareUseCases → FirmwareCatalogPort → 自建 Firmware API
                          → FirmwareCachePort   → 本地隔离缓存
                          → DeviceUpdatePort    → SDK / BLE SMP → Clip
 Server Firmware API → FirmwareAuthorization → PackageStore / Validator / AuditStore
+                    → DeviceRegistry / PrincipalGrants / ProfilePolicy
 ```
 
 - Server 保存固件制品、元数据、发布状态、访问范围、授权和审计；不替 App 连接蓝牙。
@@ -49,6 +50,14 @@ Server Firmware API → FirmwareAuthorization → PackageStore / Validator / Aud
 - 设备/bootloader 执行镜像接收、验证、切换与确认，仍是镜像签名和启动策略的最终边界。
 - `FirmwareCache` 与音频库、回收站、音频同步队列分开；固件缓存不能当作设备备份。
 - 保留现有 `/api/audio` 行为和凭据。固件 API 使用独立授权；旧音频 token 不能自动获得固件发布权限。
+
+### 3.1 Endpoint 与职责边界
+
+- App 只填写根地址（开发示例 `https://100.58.19.213:9528`），客户端固定追加 `/api/boa/v1/firmware`；原 `/api/audio` 不变。
+- HTTPS + JSON 处理管理数据，固件使用二进制流，App → Clip 升级仍为 BLE SMP。固件 token 不复用音频权限，不回退官方服务。
+- capabilities 返回 server_id、协议版本、角色/资源范围和限制；切换 endpoint/身份形成新目标修订，不把旧授权或任务转发给新服务。
+- 开始许可、取消、核实分别使用 start/cancel/resolve；events 只记录合法进展和结果证据，不发放开始许可。
+- 设备、grants、profile 和策略支持 App 管理；条件写使用 If-Match/revision，发布和策略保留不可变快照。授权、操作、设备租约与 App 观察阶段分别建模，避免一个 status 承担全部含义。
 
 ## 4. 权限与存储
 
@@ -58,9 +67,9 @@ Server Firmware API → FirmwareAuthorization → PackageStore / Validator / Aud
 | operator | 是 | 是，限定设备/profile | 否 | 否 |
 | admin | 是 | 是 | 是 | 是 |
 
-首版使用独立可撤销的高熵 Bearer 凭据，由受控管理命令创建/轮换，Server 只保存校验摘要；不把现有音频 token 升格成管理员。App 保存 credentialRef，不在日志、导出或固件清单中保存秘密。凭据持久化复用现有抽象，不能顺带重置钥匙串或音频设置。
+首个管理员由受控 CLI 初始化，日常设备登记、主体创建/授权范围修改/撤销/轮换在 App 管理页通过 Server API 完成。首版使用独立可撤销的高熵 Bearer 凭据，Server 只保存校验摘要；不把现有音频 token 升格成管理员。App 保存 credentialRef，不在日志、导出或固件清单中保存秘密。凭据持久化复用现有抽象，不能顺带重置钥匙串或音频设置。
 
-管理员分配 `device_ref` 与允许的 profile；手机/macOS 的 BLE remoteId 只属于本机连接标识，不作为跨客户端设备身份。实物稳定身份获取方式未验证前，仅允许操作者现场核对的手动升级，不开放远程无人值守部署。
+管理员通过设备接口分配 `device_ref` 与允许的 profile，主体 grants 与设备允许的 profile 取交集；手机/macOS 的 BLE remoteId 只属于本机连接标识，不作为跨客户端设备身份。实物稳定身份获取方式未验证前，仅允许操作者现场核对的手动升级，不开放远程无人值守部署。
 
 Server 权限约束自建服务和本 App 的操作；不能保证持有设备、有效镜像和其他刷机工具的人无法绕过 App。要在设备侧强制发行者控制，需要实际 bootloader 签名策略，不能仅靠 UI 权限。
 
@@ -80,15 +89,15 @@ Server 权限约束自建服务和本 App 的操作；不能保证持有设备�
 ## 6. 设备升级与恢复
 
 ```text
-检查目标 → 申请授权 → 下载 → 完整性/兼容性检查 → 最终状态复核
-→ 获取设备独占锁 → BLE SMP 传输 → 镜像验证/测试 → 重启
+检查目标 → 申请授权并保留设备租约 → 下载 → 完整性/兼容性检查
+→ 最终状态复核并获取本机设备锁 → POST start 获取开始许可 → BLE SMP 传输 → 镜像验证/测试 → 重启
 → 重连读取运行镜像与版本 → 确认 → 成功 / 失败 / 待确认
 ```
 
 - 下载 100%、SMP 上传结束、SDK 回调成功、设备新镜像已运行，是不同事件。只有确认所需镜像已运行并满足 profile 的确认条件，UI 才显示升级成功。
 - 第一版复用 BLE SMP，服务 UUID `00001530-1212-EFDE-1523-785FEABCD123`；不新增 AT 固件上传命令。BLE 控制/轮询与 SMP 会话的切换由适配器统一编排。
 - `AT+DFU` 是进入 USB 恢复模式的相关路径，不能当作普通 BLE OTA 的必要前置命令。USB 恢复首版提供检测/指引，自动调用外部刷机工具另行定义，不开放任意 shell 命令输入。
-- 下载/准备阶段可取消；测试、重启、确认等关键阶段不承诺强制取消安全。异常退出后先查设备镜像状态，不自动重放 reset/confirm，也不直接重刷。
+- 尚未签发开始许可时用独立 cancel 取消并释放 reserved 租约；已签发许可后不提供强停。异常退出先核实设备；needs_attention 保留 held 租约，管理员通过 resolve 提交观测证据后才归档释放，不按 TTL 自动重刷。
 - 支持续传与回滚仅在该 profile、bootloader 和 SDK 经联调确认时显示。无法确定升级结果记为 `needs_attention`，保留制品和恢复指引。
 - Clip 已联网并能上传录音，不表示能自行下载和安装固件。Server → Clip 直接 OTA、批量远程推送、静默自动安装不在本版范围，需独立固件设计。
 

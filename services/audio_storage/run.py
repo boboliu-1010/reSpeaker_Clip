@@ -36,6 +36,9 @@ def main():
             host=a.host,
             port=a.port,
             access_log=False,
+            # Keep the server window above Dart HttpClient's 15s idle pool.
+            # A short server timeout can race with large-file verification.
+            timeout_keep_alive=30,
             ssl_certfile=str(a.ssl_certfile) if a.ssl_certfile else None,
             ssl_keyfile=str(a.ssl_keyfile) if a.ssl_keyfile else None,
         )

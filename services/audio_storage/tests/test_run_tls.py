@@ -1,5 +1,6 @@
 """Exercise the real launcher with a process-scoped development certificate."""
 
+import http.client
 import socket
 import ssl
 import subprocess
@@ -79,6 +80,28 @@ def test_launcher_tls_and_auth(tmp_path):
                 client.get(url, headers={"Authorization": "Bearer test-only-token"}).status_code
                 == 200
             )
+        # The desktop pool retires idle sockets at 15s. The server must not
+        # expire them at Uvicorn's shorter 5s default during file verification.
+        connection = http.client.HTTPSConnection(
+            "127.0.0.1",
+            port,
+            context=ssl.create_default_context(cafile=str(cert)),
+            timeout=2,
+        )
+        try:
+            connection.request("GET", "/api/audio/recordings")
+            response = connection.getresponse()
+            assert response.status == 401
+            response.read()
+            original_socket = connection.sock
+            time.sleep(6)
+            connection.request("GET", "/api/audio/recordings")
+            response = connection.getresponse()
+            assert response.status == 401
+            response.read()
+            assert connection.sock is original_socket
+        finally:
+            connection.close()
         try:
             httpx.get(url, trust_env=False, timeout=1)
         except httpx.ConnectError as error:

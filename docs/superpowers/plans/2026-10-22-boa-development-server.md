@@ -45,4 +45,4 @@
 - [x] Attempted private SSH forward and copied token privately; SSH administratively prohibits forwarding. Replaced cross-machine test with server-internal client tests per ledger ruling; administrator decision pending.
 - [x] Upload generated audio including 101 MiB and 1 GiB, validate resume/idempotency/hash/Range and local/HTTP decode on the deployed server; restart and verify persistence.
 - [x] Verify existing Dart storage client and backup queue against the remote service using isolated test paths.
-- [ ] Fresh read-only deployment review, document evidence/limits and repeat code identity/active service checks. Preserve local branch and remote service, no publication.
+- [x] Fresh read-only deployment review, document evidence/limits and repeat code identity/active service checks. Preserve local branch and remote service, no publication.

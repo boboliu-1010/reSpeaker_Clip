@@ -1,0 +1,225 @@
+{
+  "small_roundtrip": {
+    "passed": true,
+    "started_at_utc": "2026-10-22T07:00:31.145964Z",
+    "endpoint": "https://100.58.19.213:9528",
+    "client": "unchanged desktop StorageClient running on macos",
+    "scope": "client API end-to-end, not GUI or pure wire throughput",
+    "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+    "fresh_cache_each_round": true,
+    "rounds": 1,
+    "bytes_per_transfer": 768044,
+    "source_sha256": "3adb2605897ecf48f8eccf705c15c5123e95f2e4955de84a6b05b933aff308bb",
+    "samples": [
+      {
+        "direction": "upload",
+        "round": 1,
+        "bytes": 768044,
+        "seconds": 2.903078,
+        "MB_per_second": 0.26456195803213,
+        "Mbps": 2.11649566425704,
+        "recording_id": "341dd176d6534d588dbdd6f7d51f954a",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 1,
+        "bytes": 768044,
+        "seconds": 1.690377,
+        "MB_per_second": 0.45436254752638017,
+        "Mbps": 3.6349003802110413,
+        "recording_id": "341dd176d6534d588dbdd6f7d51f954a",
+        "complete_and_sha256_verified": true
+      }
+    ],
+    "tls_trust": "process-scoped certificate from BOA_TEST_CA_FILE",
+    "summary": {
+      "upload": {
+        "median_MB_per_second": 0.26456195803213,
+        "median_Mbps": 2.11649566425704
+      },
+      "download": {
+        "median_MB_per_second": 0.45436254752638017,
+        "median_Mbps": 3.6349003802110413
+      }
+    },
+    "finished_at_utc": "2026-10-22T07:00:37.027619Z"
+  },
+  "untrusted_certificate": {
+    "passed": false,
+    "started_at_utc": "2026-10-22T07:01:06.262876Z",
+    "endpoint": "https://100.58.19.213:9528",
+    "client": "unchanged desktop StorageClient running on macos",
+    "scope": "client API end-to-end, not GUI or pure wire throughput",
+    "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+    "fresh_cache_each_round": true,
+    "rounds": 1,
+    "bytes_per_transfer": 768044,
+    "source_sha256": "3adb2605897ecf48f8eccf705c15c5123e95f2e4955de84a6b05b933aff308bb",
+    "samples": [],
+    "error": "HandshakeException: Handshake error in client (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: application verification failure(handshake.cc:320))",
+    "finished_at_utc": "2026-10-22T07:01:07.060894Z"
+  },
+  "wrong_token": {
+    "passed": false,
+    "started_at_utc": "2026-10-22T07:01:07.374711Z",
+    "endpoint": "https://100.58.19.213:9528",
+    "client": "unchanged desktop StorageClient running on macos",
+    "scope": "client API end-to-end, not GUI or pure wire throughput",
+    "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+    "fresh_cache_each_round": true,
+    "rounds": 1,
+    "bytes_per_transfer": 768044,
+    "source_sha256": "3adb2605897ecf48f8eccf705c15c5123e95f2e4955de84a6b05b933aff308bb",
+    "samples": [],
+    "tls_trust": "process-scoped certificate from BOA_TEST_CA_FILE",
+    "error": "\u670d\u52a1\u8bf7\u6c42\u5931\u8d25\uff08HTTP 401\uff09",
+    "finished_at_utc": "2026-10-22T07:01:08.730405Z"
+  },
+  "preflight": {
+    "endpoint": "https://100.58.19.213:9528",
+    "certificate_source": "verified SSH connection",
+    "credentials_in_report": false,
+    "unauthenticated_status": 401,
+    "authenticated_status": 200,
+    "body_keys": [
+      "items"
+    ]
+  },
+  "five_small_rounds": {
+    "passed": true,
+    "started_at_utc": "2026-10-22T07:04:25.626920Z",
+    "endpoint": "https://100.58.19.213:9528",
+    "client": "unchanged desktop StorageClient running on macos",
+    "scope": "client API end-to-end, not GUI or pure wire throughput",
+    "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+    "fresh_cache_each_round": true,
+    "rounds": 5,
+    "bytes_per_transfer": 768044,
+    "source_sha256": "3adb2605897ecf48f8eccf705c15c5123e95f2e4955de84a6b05b933aff308bb",
+    "samples": [
+      {
+        "direction": "upload",
+        "round": 1,
+        "bytes": 768044,
+        "seconds": 3.143467,
+        "MB_per_second": 0.2443302251940294,
+        "Mbps": 1.954641801552235,
+        "recording_id": "c725f365f07846b08528cda964f07428",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 1,
+        "bytes": 768044,
+        "seconds": 1.732879,
+        "MB_per_second": 0.4432184820752054,
+        "Mbps": 3.5457478566016434,
+        "recording_id": "c725f365f07846b08528cda964f07428",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "upload",
+        "round": 2,
+        "bytes": 768044,
+        "seconds": 2.179246,
+        "MB_per_second": 0.3524356589389174,
+        "Mbps": 2.819485271511339,
+        "recording_id": "a85b1100ee514a08acc2d87d770d17c5",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 2,
+        "bytes": 768044,
+        "seconds": 1.173993,
+        "MB_per_second": 0.654215144383314,
+        "Mbps": 5.233721155066512,
+        "recording_id": "a85b1100ee514a08acc2d87d770d17c5",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "upload",
+        "round": 3,
+        "bytes": 768044,
+        "seconds": 1.792818,
+        "MB_per_second": 0.4284004288221113,
+        "Mbps": 3.4272034305768906,
+        "recording_id": "24e70ca2c6e44b42b50172cb4656965c",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 3,
+        "bytes": 768044,
+        "seconds": 0.947833,
+        "MB_per_second": 0.810315741275098,
+        "Mbps": 6.482525930200784,
+        "recording_id": "24e70ca2c6e44b42b50172cb4656965c",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "upload",
+        "round": 4,
+        "bytes": 768044,
+        "seconds": 2.383282,
+        "MB_per_second": 0.3222631648290047,
+        "Mbps": 2.5781053186320375,
+        "recording_id": "fce14fd76e074a778c83a51ba2bc115d",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 4,
+        "bytes": 768044,
+        "seconds": 1.086748,
+        "MB_per_second": 0.7067360602457975,
+        "Mbps": 5.65388848196638,
+        "recording_id": "fce14fd76e074a778c83a51ba2bc115d",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "upload",
+        "round": 5,
+        "bytes": 768044,
+        "seconds": 2.223728,
+        "MB_per_second": 0.3453857666045487,
+        "Mbps": 2.76308613283639,
+        "recording_id": "a56fac714f2a4f97bec5c9f18a4c6f49",
+        "complete_and_sha256_verified": true
+      },
+      {
+        "direction": "download",
+        "round": 5,
+        "bytes": 768044,
+        "seconds": 1.027255,
+        "MB_per_second": 0.7476663535344193,
+        "Mbps": 5.981330828275355,
+        "recording_id": "a56fac714f2a4f97bec5c9f18a4c6f49",
+        "complete_and_sha256_verified": true
+      }
+    ],
+    "tls_trust": "process-scoped certificate from BOA_TEST_CA_FILE",
+    "summary": {
+      "upload": {
+        "median_MB_per_second": 0.3453857666045487,
+        "median_Mbps": 2.76308613283639
+      },
+      "download": {
+        "median_MB_per_second": 0.7067360602457975,
+        "median_Mbps": 5.65388848196638
+      }
+    },
+    "finished_at_utc": "2026-10-22T07:04:44.961534Z"
+  },
+  "large_file_hash_diagnostic": {
+    "file_bytes": 105906220,
+    "hash_elapsed_ms": [
+      653,
+      658,
+      642
+    ],
+    "purpose": "diagnostic only, not network throughput",
+    "root_cause_proven": false
+  }
+}

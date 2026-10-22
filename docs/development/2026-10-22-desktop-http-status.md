@@ -1,59 +1,74 @@
-# Mac 桌面客户端到开发 Server 的 HTTP 测速状态
+# Mac 桌面客户端到开发 Server 的 HTTP 传输验证
 
-日期：2026-10-22。目标是验证本 Mac 上桌面端实际使用的 Dart `StorageClient` 与 `bobo@100.58.19.213` 音频 Server 的跨机器 HTTP 上传/下载。
+日期：2026-10-22。目标为 `https://100.58.19.213:9528`，客户端运行在本 Mac，调用桌面生产代码 `StorageClient`。本页记录真实跨机器 HTTPS，和之前 SSH 文件传输、Server 回环测速分开。
 
-## 当前结论：网络不通，尚无有效吞吐结果
+## 实测结果
 
-- SSH 登录和文件传输可用，但 `direct-tcpip` 返回 `administratively prohibited`，不能建立访问远端 `127.0.0.1:18765` 的本地隧道。
-- 本 Mac 使用**桌面端同一份 `StorageClient`** 对 `http://100.58.19.213:18765` 做连接检查，15.02 秒后 `SocketException: HTTP connection timed out`，没有进入上传/下载阶段。该检查使用无效的非敏感探测凭据，没有发送正式服务令牌。
-- 额外临时探测只绑定服务端私有接口 `10.180.1.219:18766`，只接受私有来源的随机标记 GET，不接入音频库、不读取用户文件。从 Mac 对 `100.58.19.213:18766` 和 `10.180.1.219:18766` 的连接都超时；监听在 16 秒后自动关闭，退出码 0。
-- `100.58.19.213` 不是 RFC 1918 私有地址或 100.64/10 共享地址，不能仅凭 100 开头认作私网。后续若提供公网地址，应使用可验证的 HTTPS；SSH 隧道内仍可用现有 loopback HTTP。
+**通过：同一个桌面客户端对象完成三轮上传 + 下载，六次文件校验全部一致；未再出现下载后下一次上传断连。**
 
-**没有测出 Mac/App → HTTP → Server 的真实上传/下载速度。之前 SSH 和服务器内回环的数字不能填作这项指标。**
+| 方向 | 三轮中位数 MB/s | 三轮中位数 Mbps | 单次中位耗时 |
+| --- | --- | --- | --- |
+| 上传 | 1.407 | 11.252 | 75.29 秒 |
+| 下载 | 1.777 | 14.217 | 59.60 秒 |
 
-## 已准备的客户端测速入口
+| 轮次 | 上传 MB/s | 下载 MB/s |
+| --- | --- | --- |
+| 1 | 1.407 | 1.809 |
+| 2 | 1.398 | 1.768 |
+| 3 | 1.589 | 1.777 |
 
-新增 `deploy/benchmarks/desktop_audio_http.dart`，直接导入桌面端既有 `StorageClient`，不复制/修改其实现，不启动 GUI、不修改已安装 App 设置。
+客户端源码 SHA-256：`a3644bb8bb0f25b05a9405a2810070727be98edf9d2479e38199f652bd89701f`。代码提交 `d5768d0`；三份下载音频均额外完成 FFmpeg 全文件解码，无错误。这是解码验证，不是 GUI 听音验收。
 
-该入口会先验证鉴权，再上下行各测三次并报告中位数。每轮使用全新上传会话缓存和下载目录，防止命中本地缓存而测到虚假高速度；校验完整文件长度和 SHA-256。令牌只从指定文件读取，不打印、不写入报告。
+[正式原始结果](evidence/2026-10-22-desktop-9528-throughput.json) · [独立复核与解码](evidence/2026-10-22-desktop-9528-validation.json)。
 
-指标是**桌面客户端端到端有效吞吐**：上传包含客户端哈希、HTTP 请求和服务完成等待；下载包含传输、写盘和客户端完整性校验。额外独立复核哈希在计时后执行。它反映用户等待时间，不等同于此前排除客户端哈希/合并的分片传输指标。
+## 测量口径
 
-已用隔离的 Mac loopback 服务验证两项工具行为：
+- 使用合成 WAV，单次 105906220 字节（101 MiB 加 WAV 头），上下行各三轮，顺序执行。MB/s 为十进制字节，Mbps 为十进制比特，相差 8 倍。
+- 每轮使用全新上传会话缓存与下载目录，验证录音 ID 不重复、状态 complete、字节数及整文件 SHA-256 一致，没有复用本地成品。
+- 上传计时包含客户端哈希、HTTP 请求、服务端合并校验完成等待；下载包含网络、写盘与客户端校验。额外独立复核哈希在计时外。
+- 这是实际客户端调用的端到端有效吞吐，不是裸网络上限，也不是排除合并/哈希的分片接收速度。原先 [SSH 与回环报告](2026-10-22-throughput-verification.md) 的计时口径不同，不能混作同一指标。
+- 测速程序 `deploy/benchmarks/desktop_audio_http.dart` 直接导入生产客户端，没有另写一套传输实现。结果记录客户端源码哈希，便于区分原版与本次修复。
 
-1. 正常凭据：实际上传/下载完成，返回成品和哈希一致，报告为 passed。
-2. 错误凭据：HTTP 401，报告为 failed，样本数为 0；不会把鉴权失败或缓存命中冒充测速成功。
+## 大文件连续传输发现的问题
 
-这两项只是**测速工具 smoke 验证**，不是远端部署验收，未将本地 smoke 速度列入正式结果。
+原客户端在三个独立尝试中，均成功上传及下载一个 101 MiB WAV，但紧接着创建下一次上传时出现：
 
-## 网络开通后运行
-
-优先由管理员按 [开发机说明](server-100.58.19.213.md) 允许 `bobo` 仅本地转发至 `127.0.0.1:18765`，建立隧道并验证。当前 bobo 无免密 sudo，无法代替管理员改系统 SSH 配置。
-
-隧道可用后，在本 Mac 运行以下命令；若提供另一个可达 HTTPS 根地址，则替换首个参数：
-
-```sh
-cd /Users/bobo/code/respeaker-boa-integration/mobile/app
-dart --packages=.dart_tool/package_config.json \
-  ../../deploy/benchmarks/desktop_audio_http.dart \
-  http://127.0.0.1:18765 \
-  "$HOME/.config/boa-voice/development-100.58.19.213.token" \
-  ../../services/audio_storage/artifacts/tone-101MiB.wav \
-  "$HOME/.cache/boa-voice/desktop-http/remote" 3
+```text
+HttpException: Connection closed before full header was received
+/api/audio/uploads
 ```
 
-示例依赖此前生成的合成 WAV 和本机受保护凭据文件；换机器需自行准备测试音频和凭据。实际运行会新增 3 个带 `desktop-http-` 前缀的测试录音；当前还未在远端运行这一正式测速。工具不会自动修改端口、SSH、模型、录音或 App 配置。
+服务器进程持续 active，没有异常退出。小文件连续五轮通过。Mac Python httpx 对照可下载同一大文件并继续创建上传，观察到后续请求换了连接。以上证据支持“下载后的连接复用故障”，**没有证明是 Dart、TLS、网络代理或 Server 的哪一层先关闭连接**。
 
-## 证据
+曾尝试把 Server keep-alive 从 5 秒延长到 30 秒；大文件问题仍出现，因此此调整和对应临时测试已撤回，最终保持原有 Server 默认值。不能把这个尝试描述为修复。
 
-- [Mac Dart 客户端连接结果](evidence/2026-10-22-desktop-http-client-probe.json)
-- [无凭据的临时网络探测](evidence/2026-10-22-desktop-http-network-probe.json)
-- [仅本地工具 smoke 检查](evidence/2026-10-22-desktop-http-tool-check.json)
+最终补丁只让 `StorageClient.download()` 对下载请求显式设置 `persistentConnection = false`，不把该下载连接留给后续 POST。上传控制、分片重试、Range、续传、文件命名及哈希验证保持原逻辑；没有盲目重试创建上传，避免在结果不确定时重复创建会话。
 
-原有 Server 仍运行，临时 18766 监听已关闭；未改防火墙、SSH 配置、正式应用令牌或安装的 App。
+新增故障注入测试：对端完成下载后，若同一连接承载下一次 POST 就关闭连接。旧代码重现同样异常，新代码下载校验与后续 POST 均成功；独立审阅在隔离目录对 BASE/HEAD 复验了差异。此测试证明规避措施有效，不代替真实远程复测或底层根因证明。
 
-本轮使用的原始 `storage_client.dart` SHA-256：`5b2d866acca3a3450a6a922b8dbcd981eb15aa160caf4fe9b57080ad77e0ccb0`，与来源版本一致。
+修复前记录完整保留：
 
-## 后续补查：现有 9527 HTTPS 入口
+- [第一次大文件失败](evidence/2026-10-22-desktop-9528-initial-failure.json)
+- [再次重现](evidence/2026-10-22-desktop-9528-reproduced-failure.json)
+- [只延长 keep-alive 仍失败](evidence/2026-10-22-desktop-9528-keepalive-only-failure.json)
+- [Python HTTP 客户端对照](evidence/2026-10-22-9528-httpx-diagnostic.json)
 
-[端口核对](2026-10-22-server-port-inventory.md) 已确认 Roger 的 `https://100.58.19.213:9527` 可达；先前失败仅针对 18765/18766，不能概括所有 HTTP 入口。该进程是 Clip 原始接收端，Boa 音频库 API 路由和桌面默认 CA 信任仍未打通，正式测速继续待此两项解决。
+## TLS、鉴权与部署
+
+Boa 服务监听 9528 HTTPS，Roger 的 9527 Clip 接收端保持独立；原 Boa 18765 loopback 监听已撤下。服务有令牌鉴权，数据与 SQLite 沿用原目录，没有移动或清空用户数据。
+
+Server launcher 增加成对的 `--ssl-certfile` / `--ssl-keyfile` 参数，不提供时保留原有 HTTP 默认行为。开发证书经已验证 SSH 主机连接获取，只在测速进程中显式信任，主机名/SAN 校验仍启用；未改系统钥匙串或使用放行任意证书的回调。
+
+已检查：无令牌 401、正确令牌 200、错误令牌 401、未显式信任开发证书时 TLS 验证失败；后两项测速样本数为零，不会冒充成功。真实远端 Range 检查返回 206 和正确 WAV 头。
+
+部署版本、文件 SHA-256、服务状态和证书指纹见 [9528 部署证据](evidence/2026-10-22-9528-deployment.json)。小文件五轮、TLS/鉴权检查见 [客户端检查](evidence/2026-10-22-9528-client-checks.json)。开发证书于 **2026-11-05 07:00:17 UTC** 到期，需要更新并重新分发信任；没有自动续期。
+
+本次本地及远端 Python 各 14 项通过，桌面/存储客户端 30 项通过，相关 Dart 静态检查无问题；已有 TestClient/httpx 弃用告警仍在。未把移动端完整套件或硬件验收算作通过。
+
+## 复现与范围
+
+命令、证书文件位置、服务管理与回滚见 [开发机手册](server-100.58.19.213.md)。仓库里的最终证据不含令牌、私钥或音频正文。实际运行新增测试录音，未自动删除用户文件。
+
+**没有修改已安装 GUI App 的服务器设置或证书信任，也没有安装新 App、制作 DMG、推送仓库或发布。** GUI 默认仍不信任这份开发自签证书。当前验证覆盖 Mac 上生产客户端的 HTTP 调用，不等于完整 GUI 点击验收、硬件 Clip 直传桥接、长期并发容量或生产证书部署。
+
+早先 18765/18766 不通和 SSH 转发被拒绝的证据保留在 [原客户端连接探测](evidence/2026-10-22-desktop-http-client-probe.json)、[网络探测](evidence/2026-10-22-desktop-http-network-probe.json)。它们属于 9528 开通前的历史状态。

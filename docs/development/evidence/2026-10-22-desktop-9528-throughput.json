@@ -1,0 +1,87 @@
+{
+  "passed": true,
+  "started_at_utc": "2026-10-22T07:14:39.040953Z",
+  "endpoint": "https://100.58.19.213:9528",
+  "client": "desktop StorageClient running on macos",
+  "client_source_sha256": "a3644bb8bb0f25b05a9405a2810070727be98edf9d2479e38199f652bd89701f",
+  "scope": "client API end-to-end, not GUI or pure wire throughput",
+  "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+  "fresh_cache_each_round": true,
+  "rounds": 3,
+  "bytes_per_transfer": 105906220,
+  "source_sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+  "samples": [
+    {
+      "direction": "upload",
+      "round": 1,
+      "bytes": 105906220,
+      "seconds": 75.294988,
+      "MB_per_second": 1.406550725527707,
+      "Mbps": 11.252405804221656,
+      "recording_id": "04814af75ea840df8424d1666934fdec",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "download",
+      "round": 1,
+      "bytes": 105906220,
+      "seconds": 58.556901,
+      "MB_per_second": 1.8086035666402496,
+      "Mbps": 14.468828533121997,
+      "recording_id": "04814af75ea840df8424d1666934fdec",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "upload",
+      "round": 2,
+      "bytes": 105906220,
+      "seconds": 75.774895,
+      "MB_per_second": 1.3976425833384527,
+      "Mbps": 11.181140666707622,
+      "recording_id": "b70f81fec18745008f32c5084c640ffc",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "download",
+      "round": 2,
+      "bytes": 105906220,
+      "seconds": 59.89503,
+      "MB_per_second": 1.7681971275413002,
+      "Mbps": 14.145577020330402,
+      "recording_id": "b70f81fec18745008f32c5084c640ffc",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "upload",
+      "round": 3,
+      "bytes": 105906220,
+      "seconds": 66.644404,
+      "MB_per_second": 1.5891239720592296,
+      "Mbps": 12.712991776473837,
+      "recording_id": "28b8767bb18d4576a2dd3bddf37d2caf",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "download",
+      "round": 3,
+      "bytes": 105906220,
+      "seconds": 59.595733,
+      "MB_per_second": 1.777077227995501,
+      "Mbps": 14.216617823964008,
+      "recording_id": "28b8767bb18d4576a2dd3bddf37d2caf",
+      "complete_and_sha256_verified": true
+    }
+  ],
+  "tls_trust": "process-scoped certificate from BOA_TEST_CA_FILE",
+  "summary": {
+    "upload": {
+      "median_MB_per_second": 1.406550725527707,
+      "median_Mbps": 11.252405804221656
+    },
+    "download": {
+      "median_MB_per_second": 1.777077227995501,
+      "median_Mbps": 14.216617823964008
+    }
+  },
+  "finished_at_utc": "2026-10-22T07:21:18.226658Z"
+}

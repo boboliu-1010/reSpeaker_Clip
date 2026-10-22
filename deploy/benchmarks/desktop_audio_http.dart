@@ -1,5 +1,5 @@
 // Run from mobile/app with --packages=.dart_tool/package_config.json.
-// Uses the unchanged desktop StorageClient. No token is printed or persisted.
+// Uses the desktop production StorageClient. No token is printed or persisted.
 import 'dart:convert';
 import 'dart:io';
 

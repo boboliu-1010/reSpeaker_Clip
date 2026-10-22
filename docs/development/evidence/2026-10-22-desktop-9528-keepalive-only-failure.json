@@ -1,0 +1,37 @@
+{
+  "passed": false,
+  "started_at_utc": "2026-10-22T07:08:53.488306Z",
+  "endpoint": "https://100.58.19.213:9528",
+  "client": "unchanged desktop StorageClient running on macos",
+  "scope": "client API end-to-end, not GUI or pure wire throughput",
+  "timing": "upload includes client hashes, requests and server completion; download includes transfer, local writes and client verification; post-test independent checksum is outside the timer",
+  "fresh_cache_each_round": true,
+  "rounds": 3,
+  "bytes_per_transfer": 105906220,
+  "source_sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+  "samples": [
+    {
+      "direction": "upload",
+      "round": 1,
+      "bytes": 105906220,
+      "seconds": 61.347141,
+      "MB_per_second": 1.7263432048121037,
+      "Mbps": 13.81074563849683,
+      "recording_id": "9f4d412eaf6e4a5e9822a57f0e4b0c14",
+      "complete_and_sha256_verified": true
+    },
+    {
+      "direction": "download",
+      "round": 1,
+      "bytes": 105906220,
+      "seconds": 56.796166,
+      "MB_per_second": 1.8646719921200317,
+      "Mbps": 14.917375936960253,
+      "recording_id": "9f4d412eaf6e4a5e9822a57f0e4b0c14",
+      "complete_and_sha256_verified": true
+    }
+  ],
+  "tls_trust": "process-scoped certificate from BOA_TEST_CA_FILE",
+  "error": "HttpException: Connection closed before full header was received, uri = https://100.58.19.213:9528/api/audio/uploads",
+  "finished_at_utc": "2026-10-22T07:10:54.846939Z"
+}

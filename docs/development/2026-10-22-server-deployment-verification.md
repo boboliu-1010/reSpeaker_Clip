@@ -2,6 +2,8 @@
 
 日期：2026-10-22。目标：`bobo@100.58.19.213`，主机名 `sun-dev-node001`。代码来自本地 `boa/desktop-https-integration`。
 
+本页保留初次部署的快照。后续以 `2b832d6` 开通 9528 HTTPS，目前为 `d5768d0`（中途无效的 keep-alive 调整已撤回），原 18765 停止监听；当前配置见 [开发机手册](server-100.58.19.213.md)，跨机器测试见 [桌面 HTTP 验证](2026-10-22-desktop-http-status.md)。
+
 ## 已部署
 
 - 固定部署提交：`50bc0706aaa4d81f7e9fa857662f07f86c01c707`。其 Server 运行时代码与原桌面来源 `c69830b` 一致；共 11 个受控 Server 文件逐一 SHA-256 比对通过。代码通过 `git archive` 传输，无本地数据、虚拟环境或令牌。

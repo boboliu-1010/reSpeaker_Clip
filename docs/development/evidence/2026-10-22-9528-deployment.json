@@ -1,0 +1,76 @@
+{
+  "checked_at_utc": "2026-10-22T07:18:59.263422+00:00",
+  "release_sha": "d5768d0d000b12895f94c35da7d1d74c3e56dfe2",
+  "tracked_server_files_verified": 12,
+  "file_sha256": {
+    "services/audio_storage/.gitignore": "2bc206ec954eec6eaed0109b2b74183d36271589bc43c4583d9a113ba1e1ced4",
+    "services/audio_storage/README.md": "893e2523fa3bddfd36fb177f3784bec58e24d59b374fa852ac714f4b957d46fb",
+    "services/audio_storage/app.py": "8099133cf9de5545bdf13b3ac8fe6bfe43402636067ee4e1b5c04743d37908af",
+    "services/audio_storage/requirements.lock.txt": "150db98cbbdaecdbc6a9b7089a023ed80ab3d4d829a44f2649deabf4e89437bf",
+    "services/audio_storage/ruff.toml": "99d2082cae4ea8063c18311d027dcae6ae5eff4ef42dc40829c00fe2c6b722fa",
+    "services/audio_storage/run.py": "5d51157617e7840ee2d0f273874f8058b6fd34d237aaccfdf2e769e8530e36df",
+    "services/audio_storage/store.py": "a2b0ae395286878bf8a8d96279adb89475dead55bb8c65a75afae921c5d8ff2b",
+    "services/audio_storage/tests/test_api.py": "ff5e906dc4cec1d648989f7a3bb06f3e93fc99af16acb2cfa9f20dee9c5d6111",
+    "services/audio_storage/tests/test_run_tls.py": "8952f08af9ceb073a1e5722e1c9296be56b19e8203bbcb9ad042dbeef73a7d73",
+    "services/audio_storage/verify_ios.py": "ece6434a68b39fb78fdc377bf55c30c480ec0be5bfdf52fecf77b79e667ee2cf",
+    "services/audio_storage/verify_live.py": "64d0d86e11d0646b84c3b94447b72fbcb9549c311d41774fc150d31eb163a175",
+    "services/audio_storage/verify_macos.py": "39957ef3e683bae89714f8fbce557810917a5baf71b1076697015da304cd514d"
+  },
+  "unit_state": [
+    "MainPID=74390",
+    "NRestarts=0",
+    "ActiveState=active",
+    "/home/bobo/apps/boa-voice/releases/d5768d0d000b12895f94c35da7d1d74c3e56dfe2"
+  ],
+  "endpoint": "https://100.58.19.213:9528",
+  "certificate_sha256": "9264f7db7cc9695ad5b13041e6077695d05424c3bad2481b29d256ebe705aa3f",
+  "certificate_fetched_via_verified_ssh": true,
+  "range_check": {
+    "status": 206,
+    "bytes": 44,
+    "content_range": "bytes 0-43/768044",
+    "wav_header": true
+  },
+  "local_pytest": "14 passed",
+  "remote_pytest": "14 passed",
+  "warning": "existing TestClient/httpx deprecation",
+  "desktop_gui_tested": false,
+  "system_trust_changed": false,
+  "initial_tls_release_sha": "2b832d6ad1cd4ca8008ca429355c34598d61f99d",
+  "keepalive_experiment": {
+    "default_server_seconds": 5,
+    "tried_server_seconds": 30,
+    "large_transfer_failure_still_reproduced": true,
+    "reverted": true,
+    "bottom_layer_root_cause_proven": false
+  },
+  "client_patch": {
+    "revision": "d5768d0d000b12895f94c35da7d1d74c3e56dfe2",
+    "source_sha256": "a3644bb8bb0f25b05a9405a2810070727be98edf9d2479e38199f652bd89701f",
+    "download_persistent_connection": false,
+    "create_upload_automatically_retried": false
+  },
+  "local_desktop_storage_tests": "30 passed",
+  "dart_analysis": "No issues found",
+  "post_benchmark_check": {
+    "checked_at_utc": "2026-10-22T07:22:19.458829+00:00",
+    "service_state_and_listeners": [
+      "MainPID=74390",
+      "NRestarts=0",
+      "ActiveState=active",
+      "/home/bobo/apps/boa-voice/releases/d5768d0d000b12895f94c35da7d1d74c3e56dfe2",
+      "State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                           ",
+      "LISTEN 0      5            0.0.0.0:9527      0.0.0.0:*                                     ",
+      "LISTEN 0      2048         0.0.0.0:9528      0.0.0.0:*    users:((\"python\",pid=74390,fd=7))",
+      "LISTEN 0      4096   127.0.0.53%lo:53        0.0.0.0:*                                     ",
+      "LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*                                     ",
+      "LISTEN 0      4096      127.0.0.54:53        0.0.0.0:*                                     ",
+      "LISTEN 0      4096            [::]:22           [::]:*                                     "
+    ],
+    "all_three_records_still_complete": true,
+    "unauthenticated_status": 401,
+    "authenticated_range_status": 206,
+    "no_automatic_service_restart": true,
+    "desktop_gui_tested": false
+  }
+}

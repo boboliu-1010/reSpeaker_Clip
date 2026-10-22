@@ -1,0 +1,32 @@
+{
+  "verified_at_utc": "2026-10-22T07:21:55.223156+00:00",
+  "all_six_samples_verified": true,
+  "formulas_and_medians_recomputed": true,
+  "fresh_ids": 3,
+  "source_revision": "d5768d0d000b12895f94c35da7d1d74c3e56dfe2",
+  "client_source_sha256": "a3644bb8bb0f25b05a9405a2810070727be98edf9d2479e38199f652bd89701f",
+  "downloads": [
+    {
+      "round": 1,
+      "recording_id": "04814af75ea840df8424d1666934fdec",
+      "bytes": 105906220,
+      "sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+      "full_ffmpeg_decode_exit": 0
+    },
+    {
+      "round": 2,
+      "recording_id": "b70f81fec18745008f32c5084c640ffc",
+      "bytes": 105906220,
+      "sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+      "full_ffmpeg_decode_exit": 0
+    },
+    {
+      "round": 3,
+      "recording_id": "28b8767bb18d4576a2dd3bddf37d2caf",
+      "bytes": 105906220,
+      "sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+      "full_ffmpeg_decode_exit": 0
+    }
+  ],
+  "decoder_scope": "Full FFmpeg decode, not GUI or audible playback"
+}

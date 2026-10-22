@@ -1,39 +1,54 @@
 # Boa 开发服务器
 
-用户指定后续开发与部署测试使用 `ssh bobo@100.58.19.213`（主机名 `sun-dev-node001`）。这是开发环境，未部署 AI 或 Clip 原始上传桥接。
+用户指定后续开发与部署测试使用 `ssh bobo@100.58.19.213`（`sun-dev-node001`）。2026-10-22 经用户确认 9528 放通后，Boa 音频库切换为 **`https://100.58.19.213:9528`**。这是开发环境，尚未实现 AI 或 Clip 原始上传入库桥接。
 
 ## 目录与服务
 
 | 项目 | 路径/设置 |
 | --- | --- |
-| 代码版本 | `/home/bobo/apps/boa-voice/releases/<完整提交 SHA>/services/audio_storage` |
-| 当前版本 | `/home/bobo/apps/boa-voice/current` 符号链接 |
+| 当前代码 | `/home/bobo/apps/boa-voice/current` → `releases/d5768d0d000b12895f94c35da7d1d74c3e56dfe2` |
 | Python 环境 | `/home/bobo/apps/boa-voice/venv`，Python 3.12，按 requirements.lock.txt 安装 |
 | 持久数据 | `/home/bobo/.local/share/boa-audio-storage`，独立于代码与测试目录 |
-| API 令牌 | 数据目录的 `token`，0600，勿提交/输出 |
-| 用户服务 | `~/.config/systemd/user/boa-audio-storage.service`，模板见 `deploy/systemd/boa-audio-storage.service` |
-| 监听 | `127.0.0.1:18765`，HTTP；公网不开放 |
-| 生命周期 | `systemctl --user enable --now boa-audio-storage`；`loginctl show-user bobo -p Linger` 应为 yes |
+| API 令牌 | 数据目录的 `token`，0600，勿提交或输出 |
+| 用户服务 | `~/.config/systemd/user/boa-audio-storage.service` |
+| HTTPS 配置 | `~/.config/systemd/user/boa-audio-storage.service.d/9528-https.conf`，仓库 deploy/systemd 下有同名模板 |
+| 当前监听 | `0.0.0.0:9528` HTTPS；原 `127.0.0.1:18765` 已停止监听 |
+| TLS 文件 | 数据目录的 `tls/server.pem`、`tls/server.key`，0600 |
+| 生命周期 | 已启用用户服务，Linger=yes；此前已验证异常退出自动恢复，未重启整机验收 |
 
-无免密 sudo；部署未安装系统包。原有服务不变。未重启服务器验收开机启动；已启用用户服务和 linger。
+9527 是 Roger 的独立 Clip 原始接收服务，未修改。9528 提供 Boa `/api/audio`，不是 Clip `/v2` 接收端。系统 SSH 转发策略保持原状，当前测试不依赖隧道。下载连接现由桌面客户端明确退出复用池，以处理大文件下载后的下一次上传断连；延长 Server keep-alive 曾尝试但无效，已撤回，当前保持 Uvicorn 原有 5 秒默认值。失败记录与最终复测见下方桌面 HTTP 验证。
 
-## Mac / App 连接
+## Mac 客户端测试与证书
 
-**当前阻塞：服务器 SSH 拒绝端口转发，返回 `administratively prohibited`。下述隧道方案暂不可用，不能把本机端口监听当作已连通。已撤销本次无效隧道；服务仍仅监听远端 loopback。** 服务器内 HTTP 测试可以继续，Mac/App 跨机器访问尚未验收。
+9528 使用仅供开发的自签名证书，SAN 为 `IP:100.58.19.213`，SHA-256 指纹：
 
-```sh
-ssh -N -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-  -L 127.0.0.1:18765:127.0.0.1:18765 bobo@100.58.19.213
+```text
+92:64:F7:DB:7C:C9:69:5A:D5:B1:30:41:E6:07:76:95:D0:54:24:C3:BA:D2:48:1B:29:D2:56:EB:E7:05:AA:3F
 ```
 
-保持连接后，在 App 的服务器配置中使用 `http://127.0.0.1:18765`，令牌取远端数据目录的 `token`。可以在自己终端用下面命令复制到剪贴板，勿粘贴到聊天或源码：
+有效期 **2026-10-22 07:00:17 UTC 至 2026-11-05 07:00:17 UTC**（北京时间到期日 15:00:17）。证书只通过已验证 SSH 主机连接传到本机，随后由测试进程显式信任；并未关闭证书或主机名验证，未改系统钥匙串。
+
+本 Mac 的受保护文件：
+
+- `~/.config/boa-voice/development-100.58.19.213.token`：Boa 令牌。
+- `~/.config/boa-voice/development-100.58.19.213-9528.pem`：该开发证书，公开内容也不必混入源码。
+
+重跑桌面同一 `StorageClient` 的测试：
 
 ```sh
-ssh bobo@100.58.19.213 'cat ~/.local/share/boa-audio-storage/token' | pbcopy
+cd /Users/bobo/code/respeaker-boa-integration/mobile/app
+BOA_TEST_CA_FILE="$HOME/.config/boa-voice/development-100.58.19.213-9528.pem" \
+  dart --packages=.dart_tool/package_config.json \
+  ../../deploy/benchmarks/desktop_audio_http.dart \
+  https://100.58.19.213:9528 \
+  "$HOME/.config/boa-voice/development-100.58.19.213.token" \
+  ../../services/audio_storage/artifacts/tone-101MiB.wav \
+  "$HOME/.cache/boa-voice/desktop-http/remote/full" 3
 ```
 
-本机已有转发时再次运行会提示端口占用；先复用已有连接，或显式选择其他本地端口。连接 Mac 上的这个 localhost 实际访问远端，退出隧道后连接断开；服务器仍继续运行。
+上面的 WAV 是已生成的合成测试夹具，未提交到 Git；换机器需先准备音频。工具会新增测试录音，不自动删除。结果与计时口径见 [桌面 HTTP 验证](2026-10-22-desktop-http-status.md)。
+
+**已安装 GUI App 没有配置这份证书或修改服务器设置。** 默认信任连接这份自签名证书会失败。本轮验证是 Mac 上桌面生产客户端类的真实跨机器传输，不是点击 GUI 或发布版本验收。后续 GUI 接入需正式受信任证书，或另外设计受控开发证书配置；不要使用跳过 TLS 验证的回调。
 
 ## 日常运维与更新
 
@@ -43,38 +58,14 @@ ssh bobo@100.58.19.213 'journalctl --user -u boa-audio-storage -n 60 --no-pager'
 ssh bobo@100.58.19.213 'systemctl --user restart boa-audio-storage'
 ```
 
-更新前固定 Git 提交，使用 `git archive <SHA> services/audio_storage` 导出纯源码，再通过 SSH 解包至新的 `releases/<SHA>`；不要 rsync 带上本地 `data/`、`.venv/`、`artifacts/` 或令牌。安装该版本锁定依赖并测试后，切换 `current` 链接，再重启服务。保留旧版本。若依赖变化，回滚代码时也需恢复对应依赖；当前单独 venv 不是任意版本间完整环境回滚机制。
+更新前固定 Git SHA，通过 `git archive <SHA> services/audio_storage deploy/systemd` 导出纯源码，SSH 解包到新 `releases/<SHA>`。不要带上本地 `.venv/`、`artifacts/`、数据或令牌。按锁定依赖安装并运行测试，通过后切换 `current`、重启。TLS 私钥和用户 drop-in 不随代码发布，切换代码仍会保留。
 
-数据使用 SQLite 和磁盘文件。备份前停止服务，将整个数据目录一起备份，然后启动；不要只备份数据库。不得运行多个 worker 共享同一目录。测试夹具与验收证据另放 `~/apps/boa-voice/verification/`；服务中的测试上传文件仍占用持久空间，不要误当作用户录音删除。
+证书到期前需要换新并经 SSH 核对、分发新的公开证书，再重启服务与测试进程。没有设置自动续期，不能把当前开发证书当作长期部署。后续可换成正式域名与受信任证书。
 
-具体部署提交、依赖、验收结果见 [部署验证记录](2026-10-22-server-deployment-verification.md)。签名公证、App 发布、实机 Clip、原始 Opus 入库和模型任务不属于本轮部署。
+数据为 SQLite + 磁盘。备份时停止服务，整体备份数据目录再启动；不要只备份数据库。禁止多个 worker 共享同一目录。测试上传也占用持久空间，不要混同用户录音删除。
 
-## 管理员解除隧道阻塞（待确认）
+## 回滚与历史
 
-由有 sudo 权限的管理员先检查有效 SSH 配置，包括已有 Match / Include / 受限 key 条件，不能只追加一行就认为生效：
+9528 配置是 drop-in；撤销它并重启后，基础 unit 恢复 `127.0.0.1:18765` HTTP。若还要回滚代码，可将 `current` 指回 `releases/50bc0706aaa4d81f7e9fa857662f07f86c01c707`；必须先撤销 TLS drop-in，因为旧 launcher 不接受 TLS 参数。当前依赖未变；任意未来版本回滚仍需核对依赖兼容性。
 
-```sh
-sudo sshd -T -C 'user=bobo,host=CLIENT_HOSTNAME,addr=CLIENT_IP' | \
-  grep -E 'allowtcpforwarding|disableforwarding|permitopen'
-```
-
-先将 `CLIENT_HOSTNAME` 替换为 SSH 服务端看到的客户端解析主机名，`CLIENT_IP` 替换为实际客户端源地址；`host` 不是服务器主机名。参数语义见 [OpenSSH 官方手册](https://man.openbsd.org/sshd.8)。若配置还有 `Match LocalAddress/LocalPort`，也要补入真实 `laddr/lport` 才能评估对应连接。
-
-目标是只为 `bobo` 允许本地转发到 `127.0.0.1:18765`，例如在管理员确认顺序正确的位置设置：
-
-```text
-Match User bobo
-    AllowTcpForwarding local
-    PermitOpen 127.0.0.1:18765
-Match all
-```
-
-如已有 `DisableForwarding yes`，它仍会覆盖转发开关；也需检查上游跳板/网关策略。修改后先 `sudo sshd -t`，再 reload SSH 服务并重新建立连接，保留已有管理会话。本次未代为修改 `/etc/ssh`，也未开放公网 HTTP 端口。
-
-本轮用于测试的远端凭据已通过 SSH 存入本 Mac 的 `~/.config/boa-voice/development-100.58.19.213.token`（0600），未修改已安装 App 的服务器设置。该文件也不在仓库中。
-
-独立上传/下载测速结果见 [上下行测速报告](2026-10-22-throughput-verification.md)：分别记录 Mac SSH 与服务器内 HTTP，均为三次样本中位数，不能混作 App 跨机器 HTTP 网速。
-
-Mac 桌面同一 Dart 客户端的连接探测、可复用测速入口及当前阻塞见 [桌面到 Server HTTP 验证状态](2026-10-22-desktop-http-status.md)；截至本次记录仍未取得跨机器 HTTP 速度。
-
-已补查到现有 **9527 HTTPS 入口**（Roger 的 Clip 接收端），Mac 网络可达；它与 Boa 的 18765 音频库独立，尚需 API 路由与证书信任接入。详见 [服务与端口核对](2026-10-22-server-port-inventory.md)。
+[原始部署验收](2026-10-22-server-deployment-verification.md)、[早先 SSH/回环速度](2026-10-22-throughput-verification.md)、[9527 端口检查快照](2026-10-22-server-port-inventory.md) 均保留历史时点，不代表当前仍监听 18765。没有改防火墙、系统 SSH、Roger 服务、已安装 App 或用户录音；没有发布、推送或打包 DMG。

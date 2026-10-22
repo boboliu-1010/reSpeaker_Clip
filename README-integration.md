@@ -2,7 +2,7 @@
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 
-开发机为 `bobo@100.58.19.213`，见 [部署与使用说明](docs/development/server-100.58.19.213.md) 和 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md)。SSH 当前禁止端口转发，Mac/App 的跨机器连接尚待管理员处理。
+开发机为 `bobo@100.58.19.213`。Boa 音频库现使用 **`https://100.58.19.213:9528`**，Mac 上桌面同一客户端已完成真实跨机器音频传输；不依赖 SSH 转发。见 [当前部署与证书说明](docs/development/server-100.58.19.213.md)、[桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。Roger 的 9527 仍是独立 Clip 接收端；已安装 GUI App 尚未配置这份开发证书。早期 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md) 保留当时的 loopback 状态。
 
 ## 集成来源
 
@@ -13,6 +13,8 @@
 | 模块、AI 和直传桥接协议文档 | 同上 | 一并迁入；设计状态不等于已开发 |
 
 本分支基于实验固件，**没有合入 main/release 分支的其他固件变更**。桌面版本保持 `1.0.1-beta.3+3`，音频 Server 保持自身 Beta 版本。原桌面分支保留。
+
+后续开发机适配只为 Server launcher 增加可选 TLS 参数；桌面 `StorageClient` 明确在下载完成后关闭该次下载连接，避免下一次上传复用对端已退出的连接。`/api/audio`、持久存储逻辑、上传重试与哈希校验保持不变。测速程序可通过环境变量在当前进程信任开发证书，未改已安装 App 或系统证书设置。
 
 ## 保留的功能与边界
 

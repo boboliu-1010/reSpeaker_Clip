@@ -17,6 +17,8 @@ python3 -m venv .venv
 
 可用 `--data-dir ./data --port 8765` 改目录与端口。局域网显式指定 `--host 0.0.0.0`，公网使用 HTTPS。CLI 对目录加进程锁，禁止绕过 `run.py` 启动多个 worker 共享目录。Ctrl+C 停止；重启保留数据和令牌。
 
+可直接启用 HTTPS：在启动命令中同时指定 `--ssl-certfile /path/server.pem --ssl-keyfile /path/server.key`；只提供一项会在创建数据目录前报错。私钥只允许服务用户读取。客户端需验证证书链和主机名，不能关闭 TLS 验证。开发机 9528 的进程内证书信任、有效期和部署说明见 [开发机手册](../../docs/development/server-100.58.19.213.md)。未提供这两个参数时保持原有 loopback HTTP 默认行为。
+
 ## 协议
 
 | 方法与路径 | 作用 |

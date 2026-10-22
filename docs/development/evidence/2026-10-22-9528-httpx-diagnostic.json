@@ -1,0 +1,10 @@
+{
+  "client": "Mac Python httpx diagnostic",
+  "endpoint": "https://100.58.19.213:9528",
+  "passed": true,
+  "download_seconds": 56.12728991599943,
+  "download_size": 105906220,
+  "next_post_status": 201,
+  "reused_network_stream": false,
+  "unused_session_cancelled": true
+}

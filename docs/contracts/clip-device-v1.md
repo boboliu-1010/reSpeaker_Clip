@@ -4,6 +4,8 @@
 
 源码基线：固件 `applications/clip` 内容树 `f78e227180db84a08c292ce946c2fd0fa72caa74`；Flutter SDK 内容树 `e3c3c09aa362f8c1584582f47f026c2f40f62381`。收到的实物需记录 VERSION、刷入包的构建来源/校验值及实际板型。只知道“roger/官方固件”名称，不足以判定兼容。
 
+可选的 [Clip 联网直传方案](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 是另一个尚未开发/冻结的扩展；本契约的已有命令、AP/UDP 语义和白名单不因此改变。
+
 ## 1. 分层与所有权
 
 ```text

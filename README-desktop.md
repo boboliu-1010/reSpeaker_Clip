@@ -8,6 +8,8 @@
 
 服务端 AI 规划已改为官方流程：App 上传 → Server 转写/摘要 → App 获取结果。新增 [AI HTTP v1 协议草案](docs/contracts/ai-http-v1.md) 定义自定义模型 endpoint、配置/凭据、任务、结果版本及错误；尚未实现，当前功能表仍以已验收代码为准。
 
+另补充 [Clip 直传 Server 方案](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)：需固件 STA/TLS/上传队列、设备身份及服务端原始音频接收/转换；目前仅列设计与验证门槛，现有 App 中转不变。
+
 ## 本地开发与交付
 
 本地开发直接运行 `bash scripts/run-desktop.sh`，使用 Flutter 调试与热重载，不制作或反复安装 DMG。当前开发分支为 `boa/desktop-beta3`；本机功能验收通过后，再统一生成 Beta DMG 做交付验收，用户确认后才上传。下方下载入口仍指向已发布的 Beta 2。

@@ -1,0 +1,19 @@
+[Unit]
+Description=Boa Voice development HTTP audio storage
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/boa-voice/current/services/audio_storage
+ExecStart=%h/apps/boa-voice/venv/bin/python run.py --data-dir %h/.local/share/boa-audio-storage --host 127.0.0.1 --port 18765
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0077
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

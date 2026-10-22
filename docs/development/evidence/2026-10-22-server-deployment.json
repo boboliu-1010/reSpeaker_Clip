@@ -1,0 +1,20 @@
+{
+  "host": "sun-dev-node001",
+  "ssh_target": "bobo@100.58.19.213",
+  "deployed_commit": "50bc0706aaa4d81f7e9fa857662f07f86c01c707",
+  "working_directory": "/home/bobo/apps/boa-voice/releases/50bc0706aaa4d81f7e9fa857662f07f86c01c707/services/audio_storage",
+  "unit_enabled": "enabled",
+  "active_state": "active",
+  "bind": "127.0.0.1:18765",
+  "unauthenticated_status": 401,
+  "token_mode": "0o600",
+  "automatic_restart_after_sigkill": true,
+  "restart_seconds": 3.44,
+  "main_pid_before": 11842,
+  "main_pid_after": 14074,
+  "recordings_after_restart": 13,
+  "memory_peak_bytes": "34508800",
+  "local_tunnel_working": false,
+  "tunnel_error": "administratively prohibited",
+  "server_reboot_tested": false
+}

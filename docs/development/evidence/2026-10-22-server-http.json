@@ -1,0 +1,72 @@
+{
+  "cases": [
+    {
+      "file": "tone.wav",
+      "bytes": 768044,
+      "sha256": "3adb2605897ecf48f8eccf705c15c5123e95f2e4955de84a6b05b933aff308bb",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 0.21,
+      "id": "89c2f23bd6ca41a98b31c39bdff72bce"
+    },
+    {
+      "file": "tone.m4a",
+      "bytes": 66057,
+      "sha256": "2013fee792815af482df533e485133ed25b147aaa7a3001f8ab6e6e338650a42",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 0.65,
+      "id": "b9bb6447e6c84c1698ee641e888c2325"
+    },
+    {
+      "file": "tone.mp3",
+      "bytes": 64748,
+      "sha256": "932da8b8efeb88cef51c4d06b67333ea4191c77adce270e708f6931e81f2b479",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 0.13,
+      "id": "eb7f5d661a514b45a6b910b41a029b64"
+    },
+    {
+      "file": "tone.ogg",
+      "bytes": 58614,
+      "sha256": "aa67777262e99cfb8ddb9200f1b733097e97108d6258b4edf5200d2fef41c68a",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 0.27,
+      "id": "1847e4a10a9a4ee2854c63f7e15f9f2e"
+    },
+    {
+      "file": "tone-101MiB.wav",
+      "bytes": 105906220,
+      "sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 3.71,
+      "id": "3d48bc0d4c5e4bb0b293e6abd69c2d1c"
+    },
+    {
+      "file": "tone-1024MiB.wav",
+      "bytes": 1073741868,
+      "sha256": "5083c4b5e0df96246235e725de81d2e76802bc1c524e76904f68fca1447cd463",
+      "upload_download_hash_match": true,
+      "decode_full": true,
+      "http_seek_decode": true,
+      "seconds": 29.79,
+      "id": "5f25c373e7304ee4a61ee219a3004082"
+    }
+  ],
+  "checks": {
+    "process_kill_upload_resume": true,
+    "persistent_list_after_restart": true,
+    "download_resume": true,
+    "duplicate_part_idempotent": true
+  },
+  "server_peak_rss_mib": 51.35546875,
+  "passed": true
+}

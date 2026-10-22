@@ -32,9 +32,9 @@
 
 **Interfaces:** Existing run.py CLI and pinned requirements consume versioned source; produces persistent localhost service and local SSH-forwarded endpoint.
 
-- [ ] Commit unit/runbook; validate CLI paths and source revision before upload.
-- [ ] Transfer only Git-tracked Server via archive, establish user venv with verified bootstrap if pip absent, install pinned dependencies and run Server tests on Linux.
-- [ ] Verify systemd unit, start/enable it, check localhost bind, token permissions, process revision, linger and unauthorized response.
+- [x] Commit unit/runbook; validate CLI paths and source revision before upload.
+- [x] Transfer only Git-tracked Server via archive, establish user venv with verified bootstrap if pip absent, install pinned dependencies and run Server tests on Linux.
+- [x] Verify systemd unit, start/enable it, check localhost bind, token permissions, process revision, linger and unauthorized response.
 
 ## Task 2: Exercise remote behavior and retain development environment
 
@@ -42,7 +42,7 @@
 
 **Interfaces:** Task 1 remote service and SSH tunnel consumed by HTTP and Dart clients.
 
-- [ ] Establish private SSH forward on unused local port; copy token to protected local config without printing it.
-- [ ] Upload generated audio including 101 MiB and 1 GiB, validate resume/idempotency/hash/Range and local/HTTP decode on the deployed server; restart and verify persistence.
-- [ ] Verify existing Dart storage client and backup queue against the remote service using isolated test paths.
+- [x] Attempted private SSH forward and copied token privately; SSH administratively prohibits forwarding. Replaced cross-machine test with server-internal client tests per ledger ruling; administrator decision pending.
+- [x] Upload generated audio including 101 MiB and 1 GiB, validate resume/idempotency/hash/Range and local/HTTP decode on the deployed server; restart and verify persistence.
+- [x] Verify existing Dart storage client and backup queue against the remote service using isolated test paths.
 - [ ] Fresh read-only deployment review, document evidence/limits and repeat code identity/active service checks. Preserve local branch and remote service, no publication.

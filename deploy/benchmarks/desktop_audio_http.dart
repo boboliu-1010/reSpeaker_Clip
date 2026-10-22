@@ -50,6 +50,12 @@ Future<void> main(List<String> args) async {
   };
   StorageClient? client;
   try {
+    // Trust only in this process; never disable certificate/hostname validation.
+    final certificate = Platform.environment['BOA_TEST_CA_FILE'];
+    if (certificate != null && certificate.isNotEmpty) {
+      SecurityContext.defaultContext.setTrustedCertificates(certificate);
+      report['tls_trust'] = 'process-scoped certificate from BOA_TEST_CA_FILE';
+    }
     final token = (await File(args[1]).readAsString()).trim();
     client = StorageClient(args[0], token);
     // Require authenticated HTTP access before any sample is recorded.

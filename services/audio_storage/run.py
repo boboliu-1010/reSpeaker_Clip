@@ -18,7 +18,11 @@ def main():
     )
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--ssl-certfile", type=Path)
+    p.add_argument("--ssl-keyfile", type=Path)
     a = p.parse_args()
+    if bool(a.ssl_certfile) != bool(a.ssl_keyfile):
+        p.error("--ssl-certfile and --ssl-keyfile must be provided together")
     os.umask(0o077)
     a.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (a.data_dir / "server.lock").open("w") as lock:
@@ -32,6 +36,8 @@ def main():
             host=a.host,
             port=a.port,
             access_log=False,
+            ssl_certfile=str(a.ssl_certfile) if a.ssl_certfile else None,
+            ssl_keyfile=str(a.ssl_keyfile) if a.ssl_keyfile else None,
         )
 
 

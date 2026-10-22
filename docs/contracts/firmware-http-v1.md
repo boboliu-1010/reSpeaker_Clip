@@ -2,6 +2,8 @@
 
 **版本：1.0.0-draft.1｜状态：待评审、未实现。** 对应 [产品与模块设计](../superpowers/specs/2026-10-22-firmware-management-design.md)。现有 `/api/audio` 不变；下面路由目前不存在，不能据此配置 App 后就认为功能可用。
 
+待调整项集中在 [功能与协议调整清单](../product/firmware-management-review.md) 的 A-01～A-08；包括显式 start/cancel/resolve、设备和授权范围管理、profile/策略接口。这些是下一版修订建议，当前表格仍保留 draft.1，未将建议误标为冻结协议。
+
 ## 1. 标识、权限与状态
 
 - `package_id`：Server UUID，绑定一个不可变制品及校验元数据；`upload_id` 为独立的临时上传 UUID。

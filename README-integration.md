@@ -58,7 +58,7 @@ bash scripts/run-desktop.sh
 
 ## 后续接入顺序
 
-新增完整首版需求：[固件管理设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [固件 HTTP 契约](docs/contracts/firmware-http-v1.md)，覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计。当前为评审草案；未部署固件 API 或刷机。
+新增完整首版需求：先读 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约](docs/contracts/firmware-http-v1.md)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计。当前为评审草案；未部署固件 API 或刷机。
 
 1. 审核 [Clip → App/Server 桥接契约](docs/contracts/clip-ingest-app-server-bridge.md) 与 [直传设计](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)。
 2. 在 Server 实现原始录音接收、归属、可恢复转换与标准入库；保留现有 `/api/audio` 接口。

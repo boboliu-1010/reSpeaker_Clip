@@ -1,10 +1,12 @@
 # Boa Voice 文件存储 HTTP v1 契约
 
-> 个人仓库同步说明：本分支仅新增设计文档。文中桌面 Beta 3、音频服务及验证状态来自本地开发基线，未随本次文档提交上传；未同步源码以路径列出，不表示本分支已包含实现。
+> 个人仓库同步说明：此分支仅同步文档；实验实现/验证记录引用固定 BofAI 提交，Boa 产品桥接尚未实现。本次未同步固件/Server/App 代码。现存源码链接用于导航，事实以正文标记基线为准；未同步源码以路径列出。
 
 **性质：当前实现的协议基线，不是新接口。** 对应 Server `1.0.1-beta.1`，源码内容树 `b63c783b3757b8e3183a157d7ef56fafd6475775`。若将来实现变化，需连同契约和用例更新。
 
 源码：app.py（本地基线路径：`services/audio_storage/app.py`）、store.py（本地基线路径：`services/audio_storage/store.py`）、StorageClient（本地基线路径：`mobile/app/lib/src/features/audio_storage/storage_client.dart`）。模块间的类型适配见 [设计草案](../superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。
+
+设备直传接入另见 [V2 → Boa 桥接草案](clip-ingest-app-server-bridge.md)。实验 .bin/原始 Opus 不属于本接口已支持的音频；新增内部标准化发布接口仍待开发，不改变本文当前 wire。
 
 ## 1. 通用规则
 

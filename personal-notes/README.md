@@ -4,7 +4,7 @@
 
 ## 2026-10-22：Clip 直传方案补充
 
-新增[Clip 直接联网上传 Server 方案](../docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)，列清固件 STA/TLS/队列、配网与设备绑定、原始 Opus 接收/转换、完整回执及数据保留；作为独立可选路线，保留 App 中转。仅设计，未开发/刷机，最终 wire 和资源预算仍须评审验证。
+[Clip 直传状态与接入设计](../docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 已改以 BofAI cfff605 实验分支为基线：STA/HTTPS/自动上传/持久续传已有代码与实机记录，但未合 main/release，未接 Boa 音频库。新增[App/Server 桥接契约](../docs/contracts/clip-ingest-app-server-bridge.md)，定义 V2 兼容接收、源索引/outbox、元数据、解码/幂等发布、桌面与手机适配、服务端 AI 接入。此次仅同步文档，未开发/合并固件、未部署/刷机；历史验证与本轮文档检查分开。
 
 ## 2026-10-21：Boa Voice 定制设计评审
 

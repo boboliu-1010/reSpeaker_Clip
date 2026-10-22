@@ -1,12 +1,12 @@
 # Boa Voice 与 Clip 设备交互契约
 
-> 个人仓库同步说明：本分支仅同步设计文档，不包含对应固件/Server/App 实现改动。已存在源码链接用于导航，事实以正文标记的本地基线为准；未同步源码以路径列出。新增直传方案尚未冻结或验证。
+> 个人仓库同步说明：此分支仅同步文档；实验实现/验证记录引用固定 BofAI 提交，Boa 产品桥接尚未实现。本次未同步固件/Server/App 代码。现存源码链接用于导航，事实以正文标记基线为准；未同步源码以路径列出。
 
 **性质：桌面当前接入范围、固件事实与后续联调规则。** 不是给固件新增命令，也不表示已经通过真机联调。
 
 源码基线：固件 `applications/clip` 内容树 `f78e227180db84a08c292ce946c2fd0fa72caa74`；Flutter SDK 内容树 `e3c3c09aa362f8c1584582f47f026c2f40f62381`。收到的实物需记录 VERSION、刷入包的构建来源/校验值及实际板型。只知道“roger/官方固件”名称，不足以判定兼容。
 
-可选的 [Clip 联网直传方案](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 是另一个尚未开发/冻结的扩展；本契约的已有命令、AP/UDP 语义和白名单不因此改变。
+另有 cfff605 实验固件已实现 [STA/HTTPS 直传核心](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)，但未进入本文的桌面/固件基线；[App/Server 桥接](clip-ingest-app-server-bridge.md) 尚未实现。实验 USB 配置命令不自动加入本文白名单，AP/UDP 语义保持。
 
 ## 1. 分层与所有权
 

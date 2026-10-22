@@ -33,10 +33,10 @@
 
 **Interfaces:** Consumes cfff605 and source desktop c69830b; produces a single branch with both independent sets of entry points.
 
-- [ ] Run HTTPS host baseline `python3 -m unittest discover -s tools/https_poc -p 'test_*.py'`; expect 90 run, 89 pass, 1 missing SDK-fixture skip, with known disconnect-test diagnostic output.
-- [ ] Cherry-pick -x the ordered desktop commits `1c75058` through `c69830b` excluding main firmware ancestry; resolve only additive integration conflicts.
-- [ ] Compare imported desktop/client/Server trees with source and firmware/receiver trees with cfff605; expect exact runtime subtree preservation.
-- [ ] Run targeted desktop/storage regressions after dependency resolution; expect green.
+- [x] Run HTTPS host baseline `python3 -m unittest discover -s tools/https_poc -p 'test_*.py'`; expect 90 run, 89 pass, 1 missing SDK-fixture skip, with known disconnect-test diagnostic output.
+- [x] Cherry-pick -x the ordered desktop commits `1c75058` through `c69830b` excluding main firmware ancestry; resolve only additive integration conflicts.
+- [x] Compare imported desktop/client/Server trees with source and firmware/receiver trees with cfff605; expect exact runtime subtree preservation.
+- [x] Run targeted desktop/storage regressions after dependency resolution; expect green.
 
 ## Task 2: Verify preserved behavior and document runnable integration boundary
 
@@ -44,10 +44,10 @@
 
 **Interfaces:** Consumes Task 1 branch; produces reproducible start commands and evidence with no claim that the future bridge is implemented.
 
-- [ ] Run Python storage tests and full HTTPS host suite; run Flutter desktop/storage tests and the full app suite; record exact counts, skips and failures.
-- [ ] Run isolated live storage upload/download/Range/checksum and Dart client checks with generated audio; no persistent user-data modifications.
-- [ ] Build macOS debug desktop target and run native bundle checks; no install or launch of the app.
-- [ ] Document separate desktop, storage service and experimental receiver entry points, pinned baselines, unsupported bridge, no-release state and actual verification limits.
+- [x] Run Python storage tests and full HTTPS host suite; run Flutter desktop/storage tests and the full app suite; record exact counts, skips and failures.
+- [x] Run isolated live storage upload/download/Range/checksum and Dart client checks with generated audio; no persistent user-data modifications.
+- [x] Build macOS debug desktop target and run native bundle checks; no install or launch of the app.
+- [x] Document separate desktop, storage service and experimental receiver entry points, pinned baselines, unsupported bridge, no-release state and actual verification limits.
 
 ## Task 3: Review and retain integration branch
 

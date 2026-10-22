@@ -1,0 +1,109 @@
+{
+  "started_at_utc": "2026-10-22T05:40:01.964184+00:00",
+  "transport": "SSH exec file transfer, Compression=no, reused connection",
+  "target": "bobo@100.58.19.213",
+  "remote_test_directory": "/home/bobo/apps/boa-voice/verification/speedtests/boa-speed-58lmdhcn",
+  "timing": "process start through byte-count acknowledgement and fsync; hash verification outside timer; includes command and disk overhead",
+  "pilot": [
+    {
+      "direction": "upload",
+      "run": 0,
+      "bytes": 8388608,
+      "seconds": 4.80084,
+      "MB_per_second": 1.747,
+      "MiB_per_second": 1.666,
+      "Mbps": 13.979,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "download",
+      "run": 0,
+      "bytes": 8388608,
+      "seconds": 4.944501,
+      "MB_per_second": 1.697,
+      "MiB_per_second": 1.618,
+      "Mbps": 13.572,
+      "sha256_verified_outside_timer": true
+    }
+  ],
+  "samples": [
+    {
+      "direction": "upload",
+      "run": 1,
+      "bytes": 8388608,
+      "seconds": 4.973224,
+      "MB_per_second": 1.687,
+      "MiB_per_second": 1.609,
+      "Mbps": 13.494,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "download",
+      "run": 1,
+      "bytes": 8388608,
+      "seconds": 4.541686,
+      "MB_per_second": 1.847,
+      "MiB_per_second": 1.761,
+      "Mbps": 14.776,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "upload",
+      "run": 2,
+      "bytes": 8388608,
+      "seconds": 3.999268,
+      "MB_per_second": 2.098,
+      "MiB_per_second": 2.0,
+      "Mbps": 16.78,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "download",
+      "run": 2,
+      "bytes": 8388608,
+      "seconds": 3.836344,
+      "MB_per_second": 2.187,
+      "MiB_per_second": 2.085,
+      "Mbps": 17.493,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "upload",
+      "run": 3,
+      "bytes": 8388608,
+      "seconds": 4.261392,
+      "MB_per_second": 1.969,
+      "MiB_per_second": 1.877,
+      "Mbps": 15.748,
+      "sha256_verified_outside_timer": true
+    },
+    {
+      "direction": "download",
+      "run": 3,
+      "bytes": 8388608,
+      "seconds": 3.824808,
+      "MB_per_second": 2.193,
+      "MiB_per_second": 2.092,
+      "Mbps": 17.546,
+      "sha256_verified_outside_timer": true
+    }
+  ],
+  "passed": true,
+  "http_cross_machine_tested": false,
+  "payload_mib": 8,
+  "summary": {
+    "upload": {
+      "median_MB_per_second": 1.969,
+      "median_Mbps": 15.748,
+      "min_MB_per_second": 1.687,
+      "max_MB_per_second": 2.098
+    },
+    "download": {
+      "median_MB_per_second": 2.187,
+      "median_Mbps": 17.493,
+      "min_MB_per_second": 1.847,
+      "max_MB_per_second": 2.193
+    }
+  },
+  "finished_at_utc": "2026-10-22T05:40:45.631724+00:00"
+}

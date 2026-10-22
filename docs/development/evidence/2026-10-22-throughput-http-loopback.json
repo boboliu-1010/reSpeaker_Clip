@@ -1,0 +1,105 @@
+{
+  "started_at_utc": "2026-10-22T05:41:02.489638+00:00",
+  "transport": "HTTP/1.1 over server loopback, actual deployed service",
+  "endpoint": "http://127.0.0.1:18765",
+  "scope": "server-internal only; not Mac or Internet bandwidth",
+  "source_bytes": 105906220,
+  "source_sha256": "a0f1268076c903c5f74e8410d149e81528b1e4f33cd3a67178618325b64a901a",
+  "rounds": 3,
+  "samples": [
+    {
+      "direction": "upload",
+      "run": 1,
+      "bytes": 105906220,
+      "seconds": 0.695956,
+      "MB_per_second": 152.174,
+      "MiB_per_second": 145.124,
+      "Mbps": 1217.39,
+      "sha256_verified_outside_timer": true,
+      "finalization_seconds": 0.247263,
+      "recording_id": "f0615ab72f414bef914d674beb6b9440"
+    },
+    {
+      "direction": "download",
+      "run": 1,
+      "bytes": 105906220,
+      "seconds": 0.55272,
+      "MB_per_second": 191.609,
+      "MiB_per_second": 182.733,
+      "Mbps": 1532.873,
+      "sha256_verified_outside_timer": true,
+      "response_headers_seconds": 0.002313,
+      "recording_id": "f0615ab72f414bef914d674beb6b9440"
+    },
+    {
+      "direction": "upload",
+      "run": 2,
+      "bytes": 105906220,
+      "seconds": 0.660181,
+      "MB_per_second": 160.42,
+      "MiB_per_second": 152.988,
+      "Mbps": 1283.359,
+      "sha256_verified_outside_timer": true,
+      "finalization_seconds": 0.808148,
+      "recording_id": "1ffb796eb7d74ad5a11f198c7b836c26"
+    },
+    {
+      "direction": "download",
+      "run": 2,
+      "bytes": 105906220,
+      "seconds": 0.795899,
+      "MB_per_second": 133.065,
+      "MiB_per_second": 126.901,
+      "Mbps": 1064.519,
+      "sha256_verified_outside_timer": true,
+      "response_headers_seconds": 0.002073,
+      "recording_id": "1ffb796eb7d74ad5a11f198c7b836c26"
+    },
+    {
+      "direction": "upload",
+      "run": 3,
+      "bytes": 105906220,
+      "seconds": 0.654796,
+      "MB_per_second": 161.739,
+      "MiB_per_second": 154.247,
+      "Mbps": 1293.914,
+      "sha256_verified_outside_timer": true,
+      "finalization_seconds": 0.816267,
+      "recording_id": "187dde6ed3eb4080b6dbe8749da80d31"
+    },
+    {
+      "direction": "download",
+      "run": 3,
+      "bytes": 105906220,
+      "seconds": 0.789183,
+      "MB_per_second": 134.197,
+      "MiB_per_second": 127.981,
+      "Mbps": 1073.579,
+      "sha256_verified_outside_timer": true,
+      "response_headers_seconds": 0.002312,
+      "recording_id": "187dde6ed3eb4080b6dbe8749da80d31"
+    }
+  ],
+  "passed": true,
+  "timing": {
+    "upload": "first PUT through final PUT acknowledgement; payload loading and client per-part hashing outside timer; server validation/write remain included",
+    "finalization": "POST complete through completed state, reported separately",
+    "download": "GET through EOF and local output fsync; whole-file checksum outside timer; no audio decoding",
+    "cache": "warm cache, sequential single-client requests, not a cold-disk or concurrency benchmark"
+  },
+  "summary": {
+    "upload": {
+      "median_MB_per_second": 160.42,
+      "median_Mbps": 1283.359,
+      "min_MB_per_second": 152.174,
+      "max_MB_per_second": 161.739
+    },
+    "download": {
+      "median_MB_per_second": 134.197,
+      "median_Mbps": 1073.579,
+      "min_MB_per_second": 133.065,
+      "max_MB_per_second": 191.609
+    }
+  },
+  "finished_at_utc": "2026-10-22T05:41:09.130729+00:00"
+}

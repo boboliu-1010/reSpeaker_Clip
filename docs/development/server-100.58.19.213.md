@@ -72,3 +72,5 @@ Match all
 如已有 `DisableForwarding yes`，它仍会覆盖转发开关；也需检查上游跳板/网关策略。修改后先 `sudo sshd -t`，再 reload SSH 服务并重新建立连接，保留已有管理会话。本次未代为修改 `/etc/ssh`，也未开放公网 HTTP 端口。
 
 本轮用于测试的远端凭据已通过 SSH 存入本 Mac 的 `~/.config/boa-voice/development-100.58.19.213.token`（0600），未修改已安装 App 的服务器设置。该文件也不在仓库中。
+
+独立上传/下载测速结果见 [上下行测速报告](2026-10-22-throughput-verification.md)：分别记录 Mac SSH 与服务器内 HTTP，均为三次样本中位数，不能混作 App 跨机器 HTTP 网速。

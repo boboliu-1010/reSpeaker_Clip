@@ -226,6 +226,8 @@ Server 的 device_ref 租约只约束本服务；本机 Device 锁仍不可省�
 
 ## 9. 样例、兼容性和验收
 
+**已核对的固件约束：**当前集成的 cfff605 HTTPS 构建启用 CONFIG_CLIP_HTTPS_POC，应用 DFU 回调对 started/chunk 返回 MGMT_ERR_EBUSY，不能作为可 BLE OTA 的 profile 发布或签发对应 start 许可。Roger 当前 HTTPS 实验 tip 同样保留此限制。恢复 BLE OTA 必须先改造并验证固件；普通 DFU ZIP 也不包含其独立外置 Wi-Fi 补丁。详见 [源码与提交核对](../development/2026-10-22-roger-firmware-upgrade-inspection.md)。本文的 BLE 升级链路是目标协议，不表示当前固件已经具备该能力。
+
 [可机器解析的请求/响应样例](examples/firmware-http-v1.json) 展示 endpoint 拼接、能力、独立 start/cancel/resolve 与权限条件写；所有 ID、镜像和响应都是说明性样例，不代表已有设备或已部署路由。
 
 与 draft.1 相比：开始许可从 events/0 移到独立 start；增加 cancel/resolve、设备/主体 grants/profile/策略管理和修订保护；拆开授权、操作、租约及 App 观察阶段。因 draft.1 未实现，无旧客户端迁移和兼容别名。此修订不修改 `/api/audio`，不新增固件 AT 命令。

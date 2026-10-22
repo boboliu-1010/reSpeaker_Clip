@@ -57,6 +57,8 @@
 
 **建议：**首版普通升级走 App → BLE SMP → Clip，复用现有 SDK。USB 提供恢复指引；USB 正常升级界面、Server 直接推送到 Clip、设备自行联网下载固件分别列后续能力。
 
+**源码核对后新增约束：**[Roger 的 HTTPS 实验构建主动拒绝应用 DFU](../development/2026-10-22-roger-firmware-upgrade-inspection.md)，当前集成基线也如此。因此 BLE 首版是目标，需先进行固件改造/验收；现有维护路径是 bootloader USB recovery，不能只把手机 OTA 页面搬到桌面就宣称可用。
+
 **需要留意：**如果你希望 Mac 首版就能插 USB 完成常规升级，需要把它明确加入首版，将增加 USB 端口、外部工具/原生适配器和恢复状态接口。Clip 现有联网录音上传能力不等于已实现联网 OTA。
 
 ### F-06 是否自动安装

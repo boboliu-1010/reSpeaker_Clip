@@ -14,10 +14,12 @@
 | Flutter SDK | `OtaSession` + `OtaFirmwareProcessor`，SMP/mcumgr BLE 升级、多镜像解析 | 默认 `eraseAppSettings: true`；现有解析不能视为完整的兼容性和发行者验证 |
 | macOS 依赖 | 锁定 mcumgr_flutter 0.8.1 声明 macOS 支持，桌面插件已注册 | 不等于本项目桌面真机 OTA 已验收 |
 | Boa 桌面 | Clip 连接、状态与固件版本显示 | 无固件库、包管理、升级流程和升级记录入口 |
-| 固件源码 | `applications/clip/prj.conf` 启用 BLE OTA；配置两个可升级镜像；仓库有 USB MCUboot 恢复说明 | 实物刷入包、签名信任、槽位/确认策略和配置保留仍须逐 profile 联调 |
+| 固件源码 | 基础 prj.conf 启用 BLE OTA，但当前 HTTPS 实验的回调主动拒绝应用 DFU；保留双镜像和 USB MCUboot 恢复路径 | 当前 HTTPS profile 不能直接 BLE OTA；需先进行固件改造/验收，另核实签名、布局、配置保留 |
 | 自建 Server | 9528 HTTPS `/api/audio` 存储，当前单用户音频令牌 | 没有固件目录、发布、固件角色或升级授权 API |
 
 依据为本仓库源码和已安装锁定依赖，不将旧记忆中的 AP 固件限制套到现有 STA 实验分支。升级包不属于录音，不进入 `/api/audio/recordings`。
+
+2026-10-22 补充 [Roger 升级代码核对](../../development/2026-10-22-roger-firmware-upgrade-inspection.md)：`930f777` 在 HTTPS 构建中返回 DFU busy；`7afc3cc` 的独立 Wi-Fi 补丁不包含在普通 DFU ZIP。以下 BLE OTA 流程是目标设计，不能视为当前实验固件可用能力。
 
 ## 2. 产品流程与页面
 
@@ -96,6 +98,7 @@ Server 权限约束自建服务和本 App 的操作；不能保证持有设备�
 
 - 下载 100%、SMP 上传结束、SDK 回调成功、设备新镜像已运行，是不同事件。只有确认所需镜像已运行并满足 profile 的确认条件，UI 才显示升级成功。
 - 第一版复用 BLE SMP，服务 UUID `00001530-1212-EFDE-1523-785FEABCD123`；不新增 AT 固件上传命令。BLE 控制/轮询与 SMP 会话的切换由适配器统一编排。
+- 当前启用 CONFIG_CLIP_HTTPS_POC 的 profile 在上传回调中拒绝应用 DFU，且 AT 白名单不开放 DFU；必须先完成独立固件改造与验收才能开启本段 BLE 升级入口，不通过重试 busy 或只修改 UI 绕过。
 - `AT+DFU` 是进入 USB 恢复模式的相关路径，不能当作普通 BLE OTA 的必要前置命令。USB 恢复首版提供检测/指引，自动调用外部刷机工具另行定义，不开放任意 shell 命令输入。
 - 尚未签发开始许可时用独立 cancel 取消并释放 reserved 租约；已签发许可后不提供强停。异常退出先核实设备；needs_attention 保留 held 租约，管理员通过 resolve 提交观测证据后才归档释放，不按 TTL 自动重刷。
 - 支持续传与回滚仅在该 profile、bootloader 和 SDK 经联调确认时显示。无法确定升级结果记为 `needs_attention`，保留制品和恢复指引。

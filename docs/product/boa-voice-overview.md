@@ -1,100 +1,127 @@
-# Boa Voice 总览：现状、职责与后续开发
+# Boa Voice：接口、传输与数据归属
 
-**更新：2026-10-22｜用途：产品和开发统一入口。** 当前开发分支 `boa/desktop-https-integration`。本文区分“已有能力”和“目标方案”，不代表规划功能已经完成。
+**协议约定稿 v0.3｜2026-10-22｜分支 `boa/desktop-https-integration`。**
 
-我们要做的是一个自己可控的录音产品：用户通过麦克风或 Clip 录音，在 App 管理内容；Server 保存音频并处理转写、摘要；开发者维护服务、模型和固件。角色只保留 **用户、开发者**，不再设置 viewer/operator/admin 三套角色。
+**一个 Server、两类角色、每份私有数据一个 owner。** 用户操作自己的录音和设备；开发者维护模型、后台任务和固件发布。以下“新增约定”尚未实现。
 
-## 1. 整体关系
+## 1. 统一入口与 endpoint
 
-![Boa Voice 同一 Server 收敛架构](images/boa-voice-overview.png)
+同一个 Boa Server 提供设备接收和 App 业务接口。开发地址当前为 `https://100.58.19.213:9528`；Clip 暂在同机 9527 接收，后续并入统一入口。全部使用 HTTPS；JSON 传元数据，二进制传音频。
 
-绿色实线为已验证的音频链路，橙色为实验设备链路，灰色虚线为待开发能力。图中的后台任务由开发者实现、部署和维护，运行时由 Server 自动执行，**不是每条录音都要开发者手工处理**。
-
-**最终只有一个 Boa Server。Clip 接收、App 业务接口、音频库、AI 任务和固件管理都是它内部的模块，统一服务地址、用户身份和资源归属；原始录音转成可播放文件也是 Server 内部流程。** 当前同一开发机上的 9527 接收进程与 9528 音频进程尚未合并，这是过渡部署状态。
-
-两种录音入口最终汇入这个 Server 的同一份用户音频库：
-
-- **麦克风路径：**App 录音 → 上传 Server → 用户自己的音频库。这条上传/下载链路已验证。
-- **Clip 路径：**Clip 联网上传同一个 Server 的接收模块 → 确认用户归属、转换标准音频 → 同一音频库。当前实验原始接收已有，模块合并和后半段入库待开发。
-
-## 2. 只有两类角色
-
-| 角色 | 负责什么 | 不需要负责什么 |
+| 方法与路径（相对于 Server 根地址） | 输入 → 输出 | 状态 |
 | --- | --- | --- |
-| 用户 | 管理自己的录音和设备；发起内容处理、查看/编辑自己的结果；手动安装适用的已发布固件 | 发布固件、配置模型密钥、管理后台任务和其他用户 |
-| 开发者 | 开发部署 Server；维护用户身份与隔离；配置模型、存储和任务流程；校验/发布/撤下固件；处理升级异常与运维 | 日常逐条手工转码、转写或总结用户录音 |
+| POST `/api/audio/uploads` | 文件元数据 → `id,chunk_size,state,parts` | 已有；归属校验待补 |
+| GET `/api/audio/uploads/{id}` | 上传 ID → 状态、已收分片 | 已有；归属校验待补 |
+| PUT `/api/audio/uploads/{id}/parts/{index}` | 分片字节、分片 SHA → `index,size,sha256` | 已有；归属校验待补 |
+| POST `/api/audio/uploads/{id}/complete` | 上传 ID → 合并状态 | 已有；归属校验待补 |
+| GET `/api/audio/recordings`、`/api/audio/recordings/{id}` | 列表或元数据 → complete 音频 | 已有；按用户过滤待补 |
+| GET/HEAD `/api/audio/recordings/{id}/content` | 音频 ID、可选 Range → 音频字节/响应头 | 已有；归属校验待补 |
+| GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | 原始片段查询/上传 → 接收回执 | 实验已有；合并、用户绑定及入库待补 |
+| GET `/api/boa/v1/device-ingests`、`/api/boa/v1/device-ingests/{source_id}` | 本人设备接收记录 → 转码状态、标准音频引用 | 草案 |
+| POST `/api/boa/v1/transcriptions`、`/api/boa/v1/summaries` | 固定版本的输入与模型档案 → Job | 草案 |
+| GET `/api/boa/v1/jobs/{id}`、`/api/boa/v1/transcripts/{id}?revision=…`、`/api/boa/v1/summaries/{id}` | 本人任务/结果 ID → 状态或内容 | 草案 |
+| POST `/api/boa/v1/model-profiles`、PATCH `/api/boa/v1/model-profiles/{id}` | 开发者配置模型 endpoint、协议、凭据 → 脱敏档案 | 草案 |
+| GET `/api/boa/v1/firmware/releases`、`/api/boa/v1/firmware/releases/{id}/content` | 已发布版本 → 清单/固件包 | 草案 |
 
-普通 App 只呈现用户功能。模型配置、固件包上传/发布、系统策略、用户管理、后台重试和排障放在开发者维护入口；可先用受控 CLI/运维工具，不强制先建设完整 Web 后台。
+模型 endpoint 是 **Server → 模型供应商** 的地址，开发者配置 `base_url,protocol,model/deployment,credential`；不与 App 的 Server 地址混用，供应商密钥不下发 App。
 
-用户点击“处理”后，Server 在开发者配置的流程中自动完成任务；App 只负责提交、展示状态和获取结果。后台 Worker 是服务进程，不是第三类用户角色。
+## 2. 信息归谁：先定身份，再接收文件
 
-## 3. 当前到哪一步
+```mermaid
+flowchart LR
+    A["App + user_token"] -->|"认证得到 user_id"| S["同一个 Boa Server"]
+    C["Clip + device_token"] -->|"匹配 device_id 与有效绑定"| S
+    S --> O["固定 owner_user_id"]
+    O --> R["录音 → 转码 → 转写 → 摘要\n全部继承同一 owner"]
+```
 
-| 模块 | 当前情况 | 还差什么 |
+| 场景 | 归属判定与落库规则（新增约定） |
+| --- | --- |
+| App 上传 | 首版开发者为每个用户签发独立、可撤销的 user_token；Server 查出 user_id，创建上传时固定 owner_user_id；客户端不提交 owner |
+| Clip 上传 | Server 验证 `device_token`，核对路径 device 与凭据登记一致，再查有效设备绑定取得 owner |
+| 设备绑定 | 首版开发者通过受控 CLI 预登记 `device_id → owner_user_id,binding_epoch` 并发设备凭据；device_id 在本 Server 唯一；暂不增自助绑定 HTTP API |
+| 上传后处理 | 上传记录/SourceRecord 固定 owner 和绑定代数；Worker 从记录继承，不在执行时重新查“当前设备主人” |
+| 列表、下载、处理 | 每次查询同时带资源 ID 和当前用户归属条件；跨用户返回 404。分片、状态查询、HEAD、Range 也必须校验 |
+| 换绑、撤销 | 撤销旧设备凭据，旧数据归属不变；首版不开放用户自行转让。开发者先核清未同步录音、结束旧上传并清理/确认设备，再建立新绑定 |
+
+找不到有效设备绑定就拒绝上传，不默认归给当前使用 App 的人；App 自报 owner_user_id 返回 422（新增校验）。文件名、录音时间、文件 SHA、BLE 地址都不是身份凭证。用户 token 不能任意指定设备 owner，设备 token 不能下载用户音频或调用模型。原始片段与标准音频都存私有目录；相同 SHA 不授予其他用户访问权。本地缓存按 **Server + user_id** 隔离。
+
+**当前共享音频 token 只有一个访问身份，尚无用户隔离。** 迁移时给旧数据明确归属，再启用上述检查；不能把它直接发给多个用户。
+
+## 3. App 每次上传约定
+
+每个请求都带 `Authorization: Bearer <user_token>`。以下四个创建字段、分片和状态是已有协议：
+
+| 步骤 | 请求必须携带 | Server 返回 / 完成条件 |
 | --- | --- | --- |
-| Mac 桌面 App | 已有麦克风录音、暂停/继续、文件管理/播放、自动备份和 Clip 基础连接入口 | 新集成版本完整界面验收；连接自建身份、AI 和固件接口 |
-| Android / iPhone | 仓库已有手机 App 和 SDK，可参考设备连接与升级流程 | 尚未完成自建服务下的双端完整验收 |
-| 音频 Server | 9528 HTTPS，磁盘 + SQLite，分片上传、校验、Range 下载已有；Mac 同一客户端真实跨机器三轮测试通过 | 当前是单用户 token，尚无用户之间的数据隔离；已安装 GUI 未配置当前开发证书 |
-| Clip 直传 | Roger 实验固件已有 STA/HTTPS 录音上传；目前接收进程运行在同一开发机的 9527 | 原始 Opus 不能直接当作 App 音频；需归属、解码和入库桥接，仍需完整硬件联调 |
-| 转写 / 摘要 | 已有服务端接口和模型适配设计 | 后台任务、Azure/自定义模型接入和结果展示尚未完成 |
-| 固件管理 | 已有固件库、分发、升级流程设计；SDK 有可参考的升级实现 | 版本库/发布尚未实现；当前 HTTPS 固件拒绝应用 DFU，不能直接开启 BLE OTA |
+| 1. 创建 | `filename`、`size`（整文件字节数）、`sha256`（整文件）、`mime` | 201：`id,chunk_size,state,parts`；Server 固定 owner |
+| 2. 分片 | URL 的 `id,index`；`X-Content-SHA256`；该片原始字节 | 200：`index,size,sha256`；index 从 0 起，长度按返回的 chunk_size 分配 |
+| 3. 提交 | POST complete；无 body | 202 合并中，已完成时 200；不据此直接显示备份成功 |
+| 4. 确认 | GET uploads/id | `state=complete`，且整文件长度/SHA 一致，才显示已上传 |
 
-音频测试使用 101 MiB 合成 WAV，上下行各三轮，中位上传 **1.41 MB/s**、下载 **1.78 MB/s**，文件校验与完整解码通过。这是客户端传输验证，不是完整 GUI 或 Clip OTA 验收。
+创建示例（不含用户 ID）：
 
-## 4. 用户隔离怎么做
+```json
+{
+  "filename": "meeting.wav",
+  "size": 160044,
+  "sha256": "72d304c81c66672edda9f1da4786e38db21dfded2260e80987a4b6b3bc047747",
+  "mime": "audio/wav"
+}
+```
 
-规则只保留一条主线：**每份私有数据都有所属用户，Server 每次操作都校验归属。**
+新增的只读归属/来源字段由 Server 保存并在**上传状态和标准音频元数据**返回：
 
-- 录音、上传会话、设备绑定、原始片段、处理任务、转写和摘要都带受信任的 owner_user_id；由登录身份或设备绑定确定，不相信请求正文自报的用户 ID。
-- 用户只能列出、下载、修改和处理自己的资源。知道别人的录音 ID、文件哈希或下载路径，也不能访问；越权资源按不存在处理。
-- 后台任务继承源录音的用户归属，处理结果仍归该用户。设备直传按设备凭据 → 绑定用户查归属；未绑定的录音不随意进入某个人的库。
-- App 的缓存和任务按 Server 身份、用户身份隔离；切账号或服务不混用音频、结果、凭据或升级记录。
-- 已发布固件和开发者公开的模型/模板目录可以共用；用户录音、设备及处理结果不因此公开。开发者日常系统管理不默认展示所有用户正文，必要排障访问需明确授权与审计。
+| 字段 | 写入方与含义 |
+| --- | --- |
+| `owner_user_id` | Server 由认证身份确定；客户端不可覆盖 |
+| `source` | Server 写 `app_upload` 或 `clip_direct`；后者必须有可信设备接收记录 |
+| `provenance` | App 上传为 null；Clip 入库为 `{source_id,device_id,binding_epoch,device_session,segment,raw_sha256}`，来自服务端接收记录 |
 
-**现有共享音频 token 不等于多用户账号。** 改造时先给现有数据确认一个归属用户，再迁移身份与查询条件；不能把历史录音自动开放给新用户，也不能只给目录改名就宣称隔离完成。
+已有 `id,size,sha256,mime,state,created` 继续保留；`id` 在 complete 后就是 recording_id。`created` 是服务器创建时间（Unix 秒），**不是录音发生时间**；实际录音时间尚无可靠统一字段，后续单独扩展，不据它确定归属。
 
-## 5. Server 与 endpoint
+重试先查已有上传 ID/分片。同索引同内容可重传，不同内容返回 409。
 
-目标是 App 和 Clip 指向同一个 Server 根地址，由各自协议追加不同路径；App 使用用户身份，Clip 使用绑定该用户的设备凭据。开发环境业务地址当前为 `https://100.58.19.213:9528`；最终入口随部署确定，9527/9528 不是两套产品服务的固定边界。
+**新增创建幂等约定：**POST uploads 带 `Idempotency-Key: <UUID>`；同用户、方法、路径和键绑定四个创建字段，持久保留至少 24 小时。同键同正文返回原 id/状态，不同正文返回 409；回放仍校验当前身份。旧请求无键继续兼容，但不能保证创建去重。**当前 Server 尚不支持此头，不能把重试当作已实现的创建幂等。**
 
-| 入口 | 用途 | 状态 |
+## 4. Clip 每次直传约定
+
+路径固定为 `/v2/devices/{device}/recordings/{session}/{segment}`；保留实验 V2 wire，不改成 App 上传协议。
+
+| 信息 | 每次 GET/PUT 的约定 |
+| --- | --- |
+| 身份 | `Authorization: Bearer <device_token>`；必须匹配路径 device 和有效绑定 |
+| 录音标识 | device 为设备标识，session 为 14 位数字，segment 为正整数片段序号；session 不作为可信时间或用户身份 |
+| 整片校验 | `X-Recording-Size`、`X-Content-SHA256`，分别为整个原始片段的大小/SHA |
+| PUT 分块 | 另带 `Content-Length`、`Upload-Offset`、`X-Chunk-SHA256`，body 为本块字节；禁止 Transfer-Encoding |
+| 当前限制 | 整片 ≤8 MiB，每块 ≤16 KiB；连接断开后 GET 查询服务端确认的 offset，再补传 |
+| 回执 | `{status:partial或stored,size,sha256,offset}`；stored 只证明原始片段完整接收 |
+
+新增内部源键为 `(device_id,binding_epoch,session,segment)`：同键同长度/SHA 返回原回执，不同内容返回 409。owner 与绑定代数来自受信凭据/服务端绑定，并在第一次接收时固定。
+
+Server 内部执行 **原始 Opus → 验证元数据与解码 → 标准 WAV → recording_id**，沿用原 owner。原始 SHA 与 WAV SHA 分开保存。缺声道/采样率等信息显示 awaiting_metadata；不能假装已可播放。首版一片生成一条标准录音，整场合并需额外会话清单，暂不承诺。
+
+## 5. App 每次下载与处理约定
+
+| 步骤 | 请求信息 | 响应与客户端校验 |
 | --- | --- | --- |
-| `/api/audio` | 标准音频上传、列表和下载 | 已有；保持路径兼容，后续补用户归属校验 |
-| `/api/boa/v1` | 内容处理任务、转写和摘要结果 | 规划中；开发者配置模型与后台执行流程 |
-| `/api/boa/v1/firmware` | 已发布固件、用户设备升级与开发者管理 | 规划中；按用户/开发者两种权限简化 |
-| `/v2/devices/...` | 同一个 Server 内的 Clip 原始录音接收模块 | 实验 V2 协议已有；目前仍在 9527 进程，待并入统一入口与音频入库流程 |
+| 查列表/元数据 | user_token；音频 ID；列表 `offset,limit` | 仅本人 complete 录音；`id,filename,size,sha256,mime,created`，新增 owner/source/provenance 如上 |
+| 下载 | 每次 GET/HEAD 均带 user_token；URL 只传 recording_id，不传任意文件路径 | `Content-Type,Content-Length,ETag="整文件SHA",Accept-Ranges: bytes`；全量 200 |
+| 续传 | `Range: bytes=N-`、`If-Range: "整文件SHA"` | 206 必须匹配 Content-Range 起点/总长与 ETag；200 时丢弃旧半文件，从零写，禁止追加 |
+| 入本地库 | 私有 `.part` 暂存 | 全文件 size/SHA 与元数据一致后原子提交；校验失败不可播放入库 |
+| 转写 | recording_id、expected_sha256、profile_id、profile_revision、consent；按 AI 契约带幂等键 | Server 再验本人归属、音频 complete 和哈希，返回 202 Job；结果继承音频 owner |
+| 摘要 | transcript_id、transcript_revision、profile_id、profile_revision、template、consent | 读取固定转写版本，生成本人结果；后台自动串联入口仍待定义 |
 
-设备 V2 路径和续传回执保持兼容；模块间通过内部任务和发布接口协作，不再规划独立的“接收 Server → 业务 Server”产品链路。合并还需适配设备鉴权、用户归属和原始音频转换，不能仅把端口改成相同。
+未认证 401；无开发者操作权限 403；他人资源 404；冲突 409；非法 Range 416。存储 API 继续使用原 `detail` 错误体，AI/固件沿用各自契约，不把草案包装误写成已上线行为。
 
-远程使用可验证 HTTPS。普通用户凭据用于本人业务请求，不能因此获得开发者权限；旧共享 token 不升级成后台管理凭据。目标是统一用户身份，不为音频、AI、固件各做一套独立用户账号。模型 API key 留在 Server，用户 App 不保存供应商密钥，也不在自建服务失败时回退官方云。
+## 6. 现状与下一步
 
-## 6. 固件这块怎么推进
+| 已有 | 待补 |
+| --- | --- |
+| Mac 录音/管理、App 分片上传和 Range 下载；101 MiB 三轮传输校验通过 | 统一用户身份、owner 数据迁移及全部跨用户检查 |
+| Clip 实验直传、原始片段续传回执 | 并入同一个 Server、设备绑定/凭据映射、SourceRecord、解码和入库 |
+| AI、固件接口草案 | 后台任务和模型接入、App 结果展示、固件库；当前 HTTPS 固件拒绝应用 DFU，OTA 需另行验证 |
 
-用户侧只需要“看当前版本 → 选择兼容版本 → 看升级影响 → 确认 → 查看结果”。固件包校验、发布、撤下、兼容规则和异常核实都由开发者维护。
+开发顺序：**归属与鉴权 → 接收/入库闭环 → 转写摘要 → 固件库及真机升级**。本轮仅定文档。
 
-当前必须保留三个事实：
-
-1. **HTTPS 实验固件主动拒绝应用层 DFU。** 把已有手机 OTA 页面接到桌面，并不能让这份固件立即支持 BLE 升级。
-2. **USB recovery 是现有维护路径，尚未集成成 App 升级功能。** 后续需明确选择接 USB 适配，或改造并验证固件恢复 BLE OTA。
-3. **外置 Wi-Fi 补丁和存储布局迁移不能由普通 OTA ZIP 自动代替；当前 overwrite-only 也不等于自动回滚。** 升级要验证录音、Wi-Fi、上传配置和证书保留。
-
-Server 固件库和版本分发可以先做；真正刷机必须在目标设备/profile 的能力核实后开放。开始、取消、异常核实保留明确边界，不在结果未知时自动重复刷写。
-
-## 7. 后续开发顺序
-
-| 阶段 | 重点 | 验收结果 |
-| --- | --- | --- |
-| 1. 身份与隔离 | 两角色、用户身份、资源归属、设备绑定、旧数据迁移 | 两个用户交叉测试，无法读取、修改、下载或处理彼此内容 |
-| 2. 开发者后台 | 音频处理 Worker、模型配置、转写/摘要串联；固件校验、版本库与发布 | App 退出后已受理任务仍继续；结果归属正确；发布包不可悄悄替换 |
-| 3. 用户 App 接入 | 本人内容、处理结果、设备及可用固件；统一 Server 配置 | 用户不用接触密钥、队列、固件发布，也能完成业务流程 |
-| 4. 硬件闭环 | Clip 接收并入统一 Server、内部音频入库、固件升级通道、配置保留和异常恢复 | 目标设备实测录音入库/播放/处理及安全升级，分别记录证据 |
-
-这些是推进顺序，不新增组织、团队、审批流或多级角色，也不把本轮文档工作算成功能已完成。当前不部署新模块、不刷机、不发布安装包。
-
-## 8. 给开发者的详细参考
-
-本总览是最新产品职责和角色约束；下列材料作为技术附录阅读，不要求用户逐份理解。
-
-- [固件接口与状态](../contracts/firmware-http-v1.md)：保留 start/cancel/resolve、制品和恢复细节，角色按本总览调整。
-- [AI 接口](../contracts/ai-http-v1.md)、[Clip 入库桥接](../contracts/clip-ingest-app-server-bridge.md)：后台执行与归属约定。
-- [传输验证](../development/2026-10-22-desktop-http-status.md)、[Roger 升级代码核对](../development/2026-10-22-roger-firmware-upgrade-inspection.md)：当前状态的证据。
+详细字段、边界和证据：[存储现有协议](../contracts/storage-http-v1.md) · [Clip 接入](../contracts/clip-ingest-app-server-bridge.md) · [AI](../contracts/ai-http-v1.md) · [固件](../contracts/firmware-http-v1.md) · [传输实测](../development/2026-10-22-desktop-http-status.md)。

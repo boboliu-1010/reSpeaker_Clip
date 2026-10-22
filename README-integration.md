@@ -1,6 +1,6 @@
 # Boa 桌面端 / Server / HTTPS 固件集成分支
 
-**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：配图说明现状、两类角色、用户隔离、endpoint 与后续开发；其余设计与协议为开发附录。
+**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：按 endpoint、上传/下载字段和归属判定约定协议，附同一 Server 流程图与现状清单；其余设计与协议为开发附录。
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 

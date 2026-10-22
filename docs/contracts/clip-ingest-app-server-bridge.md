@@ -22,6 +22,8 @@
 
 当前 FastAPI 中间件对所有请求校验同一个用户存储 token，**新增 router 本身并不足以接通**。需要按已注册的路由边界分别校验 V2 设备身份和 `/api/audio`/用户 API 身份，再将受信 principal 传入用例；不能直接全局放行 `/v2`，也不能使设备 token 获得用户音频库权限。旧用户 token 的行为保持兼容。
 
+**归属规则补充：**[总览](../product/boa-voice-overview.md) 收敛首版为开发者 CLI 预登记用户/设备与独立凭据，不新增自助认领入口。设备路径必须匹配 token 对应的 device_id；首次接收固定 owner 与 binding_epoch，内部转换、发布和 AI 继承该快照。源去重键为本 Server 内 `(device_id,binding_epoch,session,segment)`，相同长度/SHA 幂等，不同内容冲突；receiver_id 仅用于接收实现溯源，重启/换接收进程不改变源键。设备转让首版仅由开发者维护，先核清旧待传录音与上传、撤销旧凭据再建新绑定，不能把旧数据按当前设备主人重新归属。
+
 ## 2. 已实现 V2 协议基线（保持兼容）
 
 | 项目 | `cfff605` 的行为 |
@@ -56,7 +58,7 @@ created_at / received_at（原始片段完整提交前为 null） / updated_at
 ```
 
 - owner、receiver、binding_epoch 由受信 Server 配置/鉴权确定，不能由设备填字段抢占其他用户。当前单用户部署可绑定固定 personal owner；不因此宣称已有多租户隔离。
-- 路径源键在绑定实例内唯一；同源相同 raw_size/raw_sha 返回原记录，同源不同内容为冲突，禁止覆盖。session 时间命名可能重复，首期冲突需人工处理；未来 capture UUID 需新协议。
+- 路径源键按上述 device_id + binding_epoch + session + segment 唯一；同源相同 raw_size/raw_sha 返回原记录，同源不同内容为冲突，禁止覆盖。session 时间命名可能重复，首期冲突需人工处理；未来 capture UUID 需新协议。
 - 接收首个合法请求时先持久化源身份与声明的 raw 字节信息，再接收/确认数据。原始文件完整提交后，持久化 raw_stored 状态和处理事件，再回原有 stored。转换不在 HTTP 回执等待路径执行。
 - 原件提交、事件状态和 SQL 不是同一原子操作：用持久状态机与扫描 SourceRecord 对账。原件已发布、事件未提交时可补记；事件在原件未验证时不得转码；不能靠扫描不带元数据的文件名重建归属。
 - GET 已完成片段也需补齐幂等源索引/事件后返回原回执，覆盖“原件已保存但响应/事件写入失败”。恢复事件不要求设备重传完整字节。

@@ -9,7 +9,8 @@ The Boa Voice working draft (Chinese) defines app module ownership and contracts
 
 - [Official-app customization scope: endpoints, permissions, storage and models](product/official-app-customization.md) — start here to review what changes and which protocols are affected
 - [Server transcription and summary HTTP v1 draft](contracts/ai-http-v1.md), [schema](contracts/ai-http-v1.schema.json), [fixtures](contracts/examples/ai-http-v1.json) — server-owned model endpoints and persistent AI jobs, not implemented
-- [Optional Clip direct-to-server upload design](superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) — firmware/networking, provisioning, device credentials, raw-audio ingest and confirmation; unimplemented and not wire-frozen
+- [Clip direct-upload implementation status](superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) — existing cfff605 experiment versus pending product integration
+- [Experimental V2 ingest to Boa App/Server bridge](contracts/clip-ingest-app-server-bridge.md) — source identity/outbox, metadata, canonical publishing, App playback and AI; integration design only
 - [Module and protocol design review](superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)
 - [Existing storage HTTP v1 contract](contracts/storage-http-v1.md), [payload schema](contracts/storage-http-v1.schema.json), [examples](contracts/examples/storage-http-v1.json)
 - [Clip device boundary and compatibility gaps](contracts/clip-device-v1.md)

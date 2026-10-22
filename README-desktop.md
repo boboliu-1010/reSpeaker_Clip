@@ -8,7 +8,7 @@
 
 服务端 AI 规划已改为官方流程：App 上传 → Server 转写/摘要 → App 获取结果。新增 [AI HTTP v1 协议草案](docs/contracts/ai-http-v1.md) 定义自定义模型 endpoint、配置/凭据、任务、结果版本及错误；尚未实现，当前功能表仍以已验收代码为准。
 
-另补充 [Clip 直传 Server 方案](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)：需固件 STA/TLS/上传队列、设备身份及服务端原始音频接收/转换；目前仅列设计与验证门槛，现有 App 中转不变。
+[Clip 直传状态与接入设计](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 已改以 cfff605 实验实现为基线：STA/TLS/自动上传与续传已有代码和实测记录；[Boa App/Server 桥接](docs/contracts/clip-ingest-app-server-bridge.md) 的来源索引、解码入库、App 展示和 AI 尚待开发。现有本地 App 中转不变。
 
 ## 本地开发与交付
 

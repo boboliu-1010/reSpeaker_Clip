@@ -4,6 +4,8 @@
 
 源码：[app.py](../../services/audio_storage/app.py)、[store.py](../../services/audio_storage/store.py)、[StorageClient](../../mobile/app/lib/src/features/audio_storage/storage_client.dart)。模块间的类型适配见 [设计草案](../superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。
 
+设备直传接入另见 [V2 → Boa 桥接草案](clip-ingest-app-server-bridge.md)。实验 .bin/原始 Opus 不属于本接口已支持的音频；新增内部标准化发布接口仍待开发，不改变本文当前 wire。
+
 ## 1. 通用规则
 
 - Base URL 是服务根地址；当前客户端接受 HTTP/HTTPS，拒绝 URL 内的用户名密码、query、fragment 和非根 path，不跟随重定向携带 token。

@@ -33,7 +33,7 @@ sequenceDiagram
 - **Provider：**在服务端适配不同供应商的路径、鉴权、限制和响应；App 不直接对接供应商。
 - 首期固定转写、摘要为**两个独立任务**。一键“转写并摘要”由 App 编排：转写成功后提交摘要；不在上传完成时默认触发计费。服务端自动流水线、SSE、批量任务、公开分享与结果删除另行设计。
 
-另见 [设备直传方案](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)：未来 Server 接收原始 Clip 文件后完成封装/解码，生成 canonical recording_id + SHA，再进入本稿的转写/摘要流程。设备凭据无权直接调用模型管理或 AI 任务接口；现有 App 上传路径保持。直传后的自动 AI 需要单独的用户许可与幂等策略，本稿不默认开启。
+另见 [实验直传状态](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 与 [Boa 桥接契约](clip-ingest-app-server-bridge.md)：实验接收端已能保存原始 Clip 片段，但标准化入 Boa 库尚未实现；完成后生成 canonical recording_id + SHA，再进入本稿仍待实现的转写/摘要流程。设备凭据无权直接调用模型管理或 AI 任务接口；现有 App 上传路径保持。直传后的自动 AI 需要单独的用户许可与幂等策略，本稿不默认开启。
 
 ## 2. 公共约定、鉴权与权限
 

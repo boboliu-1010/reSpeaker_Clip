@@ -54,9 +54,11 @@ ssh bobo@100.58.19.213 'systemctl --user restart boa-audio-storage'
 由有 sudo 权限的管理员先检查有效 SSH 配置，包括已有 Match / Include / 受限 key 条件，不能只追加一行就认为生效：
 
 ```sh
-sudo sshd -T -C user=bobo,host=sun-dev-node001,addr=<实际SSH客户端IP> | \
+sudo sshd -T -C 'user=bobo,host=CLIENT_HOSTNAME,addr=CLIENT_IP' | \
   grep -E 'allowtcpforwarding|disableforwarding|permitopen'
 ```
+
+先将 `CLIENT_HOSTNAME` 替换为 SSH 服务端看到的客户端解析主机名，`CLIENT_IP` 替换为实际客户端源地址；`host` 不是服务器主机名。参数语义见 [OpenSSH 官方手册](https://man.openbsd.org/sshd.8)。若配置还有 `Match LocalAddress/LocalPort`，也要补入真实 `laddr/lport` 才能评估对应连接。
 
 目标是只为 `bobo` 允许本地转发到 `127.0.0.1:18765`，例如在管理员确认顺序正确的位置设置：
 

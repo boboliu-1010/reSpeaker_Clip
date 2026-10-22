@@ -2,9 +2,9 @@
 
 **职责与隔离以 [统一总览](../product/boa-voice-overview.md) 为准。** 本文 owner_id 对应统一用户身份 owner_user_id；设备凭据须经有效绑定确定归属，后台解码/发布继承该归属。未绑定片段不能自动归入任意用户；共享实验 token 尚不是多用户方案。
 
-**版本：0.1 评审草案｜日期：2026-10-22｜状态：接入方案未实现。**
+**版本：0.2 评审草案｜日期：2026-10-22｜状态：接入方案未实现。**
 
-本稿以 BofAI `experiment/https-runtime-0.1.2` 的 **`cfff60539d94c6d3e43f788592b97a76547278fe`** 为实验实现基线。已有设备直传不从零重写；本稿定义它如何进入我们的音频库和服务端 AI 流程。现有代码、仓库实测记录和计划新增功能分开标记。
+本稿以 BofAI `experiment/https-runtime-0.1.2` 的 **`cfff60539d94c6d3e43f788592b97a76547278fe`** 为实验实现基线。已有设备直传不从零重写；本稿定义它如何作为同一个 Boa Server 的接收模块进入音频库和 AI 流程；“桥接”指内部格式/数据接口适配，不是另建一套 Server。现有代码、仓库实测记录和计划新增功能分开标记。
 
 配套：[已实现/待补对照](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)、[音频 HTTP v1](storage-http-v1.md)、[AI HTTP v1 草案](ai-http-v1.md)。本轮只更新文档，不部署接收服务、不更改设备配置、不刷机。
 
@@ -18,7 +18,7 @@
 
 **推荐：服务端增加兼容接收适配器和转换入库模块，保留设备 V2 路径/回执；App 继续读取标准音频接口。** `/api/boa/device/v1` 是旧方案提出的未来新协议，不是实验固件已使用的接口，首期不强迫设备切换。
 
-整合方式优先选“同一 Boa 服务内隔离的设备路由 + 持久处理 Worker + 音频库发布接口”。复用实验 ResumeStore 的校验/续传规则，不能直接把测试用 ThreadingHTTPServer 当成生产模块嵌入事件循环。备选为独立接收进程加桥接服务，但它还需额外的可靠事件和幂等发布接口；本稿不默认选双进程共享写数据库。
+整合方式确定为“同一个 Boa Server 内的设备路由 + 持久处理 Worker + 音频库内部发布接口”，统一对外根地址、身份归属与音频目录。当前同一开发机的 9527/9528 进程只是过渡部署，不保留为两套产品 Server。复用实验 ResumeStore 的校验/续传规则，不能直接把测试用 ThreadingHTTPServer 当成生产模块嵌入事件循环。后台 Worker 可独立运行进程，但仍属于同一 Server，不形成第二套用户服务或身份体系。
 
 当前 FastAPI 中间件对所有请求校验同一个用户存储 token，**新增 router 本身并不足以接通**。需要按已注册的路由边界分别校验 V2 设备身份和 `/api/audio`/用户 API 身份，再将受信 principal 传入用例；不能直接全局放行 `/v2`，也不能使设备 token 获得用户音频库权限。旧用户 token 的行为保持兼容。
 
@@ -81,7 +81,7 @@ created_at / received_at（原始片段完整提交前为 null） / updated_at
 
 ## 5. 标准音频发布：让当前 App 真正看得见
 
-**不能**直接将 `.bin` 搬到 `services/audio_storage/files`，也不能在接收服务里随意 INSERT uploads。标准库只通过它自己拥有的发布接口写元数据和字节。
+**不能**直接将 `.bin` 搬到 `services/audio_storage/files`，也不能在同一 Server 的接收模块里随意 INSERT uploads。标准库只通过它自己拥有的发布接口写元数据和字节。
 
 建议新增内部接口（不是现有 HTTP API）：
 

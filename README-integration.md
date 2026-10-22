@@ -4,7 +4,7 @@
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 
-开发机为 `bobo@100.58.19.213`。Boa 音频库现使用 **`https://100.58.19.213:9528`**，Mac 上桌面同一客户端已完成真实跨机器音频传输；不依赖 SSH 转发。见 [当前部署与证书说明](docs/development/server-100.58.19.213.md)、[桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。Roger 的 9527 仍是独立 Clip 接收端；已安装 GUI App 尚未配置这份开发证书。早期 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md) 保留当时的 loopback 状态。
+开发机为 `bobo@100.58.19.213`。Boa 音频库现使用 **`https://100.58.19.213:9528`**，Mac 上桌面同一客户端已完成真实跨机器音频传输；不依赖 SSH 转发。见 [当前部署与证书说明](docs/development/server-100.58.19.213.md)、[桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。Roger 的 9527 是同一开发机上暂时单独运行的 Clip 接收进程；目标并入同一个 Boa Server，统一入口和内部音频入库；已安装 GUI App 尚未配置这份开发证书。早期 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md) 保留当时的 loopback 状态。
 
 ## 集成来源
 

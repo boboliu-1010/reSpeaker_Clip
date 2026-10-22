@@ -1,0 +1,111 @@
+{
+  "target": "100.58.19.213",
+  "observed_at": "2026-10-22",
+  "scope": "listening ports and limited TCP/HTTPS probes, not a cloud-firewall audit",
+  "ports": [
+    {
+      "port": 22,
+      "protocol": "SSH",
+      "bind": [
+        "0.0.0.0",
+        "::"
+      ],
+      "mac_tcp_reachable": true,
+      "forwarding": "direct-tcpip administratively prohibited"
+    },
+    {
+      "port": 9527,
+      "protocol": "HTTPS",
+      "bind": [
+        "0.0.0.0"
+      ],
+      "owner": "roger",
+      "pid": 27560,
+      "entrypoint": "/home/roger/clip-receiver/app/run_receiver.py",
+      "mac_tcp_reachable": true,
+      "mac_unauthenticated_healthz_status": 401,
+      "role": "Clip raw recording HTTPS receiver, based on live entrypoint and repository deployment docs"
+    },
+    {
+      "port": 18765,
+      "protocol": "HTTP",
+      "bind": [
+        "127.0.0.1"
+      ],
+      "owner": "bobo",
+      "pid": 14074,
+      "entrypoint": "run.py",
+      "mac_tcp_reachable": false,
+      "mac_error": "connection timed out",
+      "role": "Boa audio storage /api/audio"
+    },
+    {
+      "port": 53,
+      "protocol": "DNS",
+      "bind": [
+        "127.0.0.53",
+        "127.0.0.54"
+      ],
+      "role": "system resolver, not an application endpoint"
+    }
+  ],
+  "https_probe": [
+    {
+      "from": "Mac",
+      "endpoint": "http://100.58.19.213:9527/healthz",
+      "error": "RemoteProtocolError: Server disconnected without sending a response.",
+      "no_credentials_sent": true
+    },
+    {
+      "from": "Mac",
+      "endpoint": "https://100.58.19.213:9527/healthz",
+      "status": 401,
+      "server": "BaseHTTP/0.6 Python/3.12.3",
+      "no_credentials_sent": true,
+      "certificate_validation": false
+    }
+  ],
+  "certificate": {
+    "subject": [
+      [
+        [
+          "commonName",
+          "100.58.19.213"
+        ]
+      ]
+    ],
+    "issuer": [
+      [
+        [
+          "commonName",
+          "192.168.2.78"
+        ]
+      ]
+    ],
+    "version": 3,
+    "serialNumber": "B7182246A97F08175C0345F8142E9DDB",
+    "notBefore": "Oct 21 08:37:10 2026 GMT",
+    "notAfter": "Oct 25 08:37:10 2026 GMT",
+    "subjectAltName": [
+      [
+        "IP Address",
+        "100.58.19.213"
+      ]
+    ]
+  },
+  "certificate_sha256": "6e1247f507a2153a252f1fdb22099fefe84658b0da09b9d67bff4715a2b0fc3c",
+  "desktop_default_trust_probe": {
+    "endpoint": "https://100.58.19.213:9527",
+    "platform": "macos",
+    "production_credential_sent": false,
+    "scope": "desktop StorageClient connectivity only, not throughput",
+    "http_reachable": false,
+    "error": "HandshakeException: Handshake error in client (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: application verification failure(handshake.cc:320))",
+    "seconds_to_result": 0.766093,
+    "at_utc": "2026-10-22T06:49:11.581799Z"
+  },
+  "production_credentials_sent": false,
+  "remote_receiver_source_readable_by_bobo": false,
+  "remote_receiver_source_hash_verified": false,
+  "service_changes_made": false
+}

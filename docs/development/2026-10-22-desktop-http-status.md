@@ -53,3 +53,7 @@ dart --packages=.dart_tool/package_config.json \
 原有 Server 仍运行，临时 18766 监听已关闭；未改防火墙、SSH 配置、正式应用令牌或安装的 App。
 
 本轮使用的原始 `storage_client.dart` SHA-256：`5b2d866acca3a3450a6a922b8dbcd981eb15aa160caf4fe9b57080ad77e0ccb0`，与来源版本一致。
+
+## 后续补查：现有 9527 HTTPS 入口
+
+[端口核对](2026-10-22-server-port-inventory.md) 已确认 Roger 的 `https://100.58.19.213:9527` 可达；先前失败仅针对 18765/18766，不能概括所有 HTTP 入口。该进程是 Clip 原始接收端，Boa 音频库 API 路由和桌面默认 CA 信任仍未打通，正式测速继续待此两项解决。

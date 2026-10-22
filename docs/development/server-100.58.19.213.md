@@ -76,3 +76,5 @@ Match all
 独立上传/下载测速结果见 [上下行测速报告](2026-10-22-throughput-verification.md)：分别记录 Mac SSH 与服务器内 HTTP，均为三次样本中位数，不能混作 App 跨机器 HTTP 网速。
 
 Mac 桌面同一 Dart 客户端的连接探测、可复用测速入口及当前阻塞见 [桌面到 Server HTTP 验证状态](2026-10-22-desktop-http-status.md)；截至本次记录仍未取得跨机器 HTTP 速度。
+
+已补查到现有 **9527 HTTPS 入口**（Roger 的 Clip 接收端），Mac 网络可达；它与 Boa 的 18765 音频库独立，尚需 API 路由与证书信任接入。详见 [服务与端口核对](2026-10-22-server-port-inventory.md)。

@@ -74,3 +74,5 @@ Match all
 本轮用于测试的远端凭据已通过 SSH 存入本 Mac 的 `~/.config/boa-voice/development-100.58.19.213.token`（0600），未修改已安装 App 的服务器设置。该文件也不在仓库中。
 
 独立上传/下载测速结果见 [上下行测速报告](2026-10-22-throughput-verification.md)：分别记录 Mac SSH 与服务器内 HTTP，均为三次样本中位数，不能混作 App 跨机器 HTTP 网速。
+
+Mac 桌面同一 Dart 客户端的连接探测、可复用测速入口及当前阻塞见 [桌面到 Server HTTP 验证状态](2026-10-22-desktop-http-status.md)；截至本次记录仍未取得跨机器 HTTP 速度。

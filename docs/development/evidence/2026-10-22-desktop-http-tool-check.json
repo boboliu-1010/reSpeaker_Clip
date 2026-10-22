@@ -1,0 +1,17 @@
+{
+  "scope": "Mac loopback benchmark-tool smoke only; NOT remote desktop-server acceptance",
+  "checks": [
+    {
+      "case": "valid",
+      "passed": true,
+      "report": "/Users/bobo/.cache/boa-voice/desktop-http/local-toolcheck-i6j_yvdx/valid/desktop-http-3Oh99G/report.json"
+    },
+    {
+      "case": "unauthorized",
+      "passed": true,
+      "report": "/Users/bobo/.cache/boa-voice/desktop-http/local-toolcheck-i6j_yvdx/unauthorized/desktop-http-OVYAEA/report.json"
+    }
+  ],
+  "passed": true,
+  "remote_http_tested": false
+}

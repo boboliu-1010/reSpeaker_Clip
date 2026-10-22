@@ -1,0 +1,17 @@
+{
+  "ssh_forwarding": "administratively prohibited",
+  "probe_credentials_sent": false,
+  "results": [
+    {
+      "address": "100.58.19.213",
+      "error": "ConnectTimeout: timed out"
+    },
+    {
+      "address": "10.180.1.219",
+      "error": "ConnectTimeout: timed out"
+    }
+  ],
+  "listener_exit": 0,
+  "listener_log": "probe listener closed",
+  "listener_error": ""
+}

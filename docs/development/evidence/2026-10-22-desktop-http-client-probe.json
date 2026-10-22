@@ -1,0 +1,10 @@
+{
+  "endpoint": "http://100.58.19.213:18765",
+  "platform": "macos",
+  "production_credential_sent": false,
+  "scope": "desktop StorageClient connectivity only, not throughput",
+  "http_reachable": false,
+  "error": "SocketException: HTTP connection timed out after 0:00:15.000000, host: 100.58.19.213, port: 18765",
+  "seconds_to_result": 15.020867,
+  "at_utc": "2026-10-22T06:12:34.629590Z"
+}

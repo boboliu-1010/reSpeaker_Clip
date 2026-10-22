@@ -248,6 +248,9 @@ class StorageClient {
     }
     if (offset < size) {
       final r = await _request('GET', '/api/audio/recordings/$uid/content');
+      // Retire bulk sockets explicitly. Some peers retire a long transfer
+      // before the pool observes EOF; reusing it can lose the next POST.
+      r.persistentConnection = false;
       if (offset > 0) {
         r.headers.set('Range', 'bytes=$offset-');
         r.headers.set('If-Range', '"$expected"');

@@ -1,9 +1,56 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:respeaker_app/src/features/audio_storage/storage_client.dart';
 
 void main() {
+  test('a retired bulk connection cannot break the next upload request',
+      () async {
+    final bytes = List<int>.generate(20000, (i) => i % 251);
+    final hash = sha256.convert(bytes).toString();
+    final root = await Directory.systemTemp.createTemp('boa-bulk-retire');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    int? bulkPort;
+    server.listen((request) async {
+      if (request.method == 'GET') {
+        bulkPort = request.connectionInfo!.remotePort;
+        request.response.headers.set('etag', '"$hash"');
+        request.response.contentLength = bytes.length;
+        request.response.add(bytes);
+        await request.response.close();
+      } else if (request.connectionInfo!.remotePort == bulkPort) {
+        // Model the peer retiring the bulk socket just as a new request arrives.
+        final socket = await request.response.detachSocket(writeHeaders: false);
+        socket.destroy();
+      } else {
+        await request.drain<void>();
+        request.response.statusCode = 201;
+        request.response.write(jsonEncode({'id': 'new-upload'}));
+        await request.response.close();
+      }
+    });
+    final client = StorageClient('http://127.0.0.1:${server.port}', 'test');
+    try {
+      final downloaded = await client.download(
+        {
+          'id': 'c' * 32,
+          'size': bytes.length,
+          'sha256': hash,
+          'mime': 'audio/wav'
+        },
+        root,
+      );
+      expect(await downloaded.readAsBytes(), bytes);
+      final receipt = await client
+          .json('POST', '/api/audio/uploads', body: {'filename': 'next.wav'});
+      expect(receipt['id'], 'new-upload');
+    } finally {
+      client.close();
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
   test('server ignoring Range replaces partial instead of appending', () async {
     final bytes = List<int>.generate(20000, (i) => i % 251);
     final hash = sha256.convert(bytes).toString();

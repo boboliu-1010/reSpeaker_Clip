@@ -31,12 +31,17 @@ Future<void> main(List<String> args) async {
   await output.create(recursive: true);
   final run = await output.createTemp('desktop-http-');
   final sourceSha = await StorageClient.hash(source);
+  final clientSource = File.fromUri(
+    Platform.script.resolve(
+      '../../mobile/app/lib/src/features/audio_storage/storage_client.dart',
+    ),
+  );
   final report = <String, dynamic>{
     'passed': false,
     'started_at_utc': DateTime.now().toUtc().toIso8601String(),
     'endpoint': args[0],
-    'client':
-        'unchanged desktop StorageClient running on ${Platform.operatingSystem}',
+    'client': 'desktop StorageClient running on ${Platform.operatingSystem}',
+    'client_source_sha256': await StorageClient.hash(clientSource),
     'scope': 'client API end-to-end, not GUI or pure wire throughput',
     'timing':
         'upload includes client hashes, requests and server completion; '

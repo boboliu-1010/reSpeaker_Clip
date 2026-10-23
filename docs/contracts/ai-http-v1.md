@@ -6,7 +6,7 @@
 
 配套：[JSON Schema](ai-http-v1.schema.json)、[正反例与交互样例](examples/ai-http-v1.json)、[模块设计](../superpowers/specs/2026-10-21-boa-voice-module-protocol-design.md)。这些文件描述目标协议，不是当前服务的路由清单或已通过联调的证明。
 
-**最新产品约束：[统一总览](../product/boa-voice-overview.md)。** 只保留用户/开发者两角色，私有音频与结果按用户隔离，模型配置和任务运行维护归开发者。下述子任务 wire 仍为 draft.1；自动串联流程、统一身份接入尚待冻结，Schema 和样例不证明这些新增能力已实现。
+**最新产品约束：[统一总览](../product/boa-voice-overview.md)。** 只保留用户/开发者两角色，私有音频与结果按用户隔离，模型配置和任务运行维护归开发者。下述子任务 wire 仍为 draft.1；自动串联新增 [ProcessingRun 草案](processing-http-v1.md)，统一身份接入仍待实现，Schema 和样例不证明这些新增能力已实现。
 
 ## 1. 架构与范围
 
@@ -20,8 +20,8 @@ sequenceDiagram
     Clip->>App: 录音下载/采集，保存并校验
     App->>API: 现有分片上传，complete 后查询
     API-->>App: complete + recording_id + sha256
-    App->>API: 发起处理 + 用户许可（组合入口待定义）
-    API-->>App: 202 Job + Location
+    App->>API: POST processing-runs + 固定输入/模型 + 用户许可
+    API-->>App: 202 ProcessingRun + Location
     Worker->>Model: 识别音频，归一化结果
     Worker->>API: 保存转写，按固定版本创建摘要子任务
     Worker->>Model: 文本 + 模板
@@ -32,7 +32,7 @@ sequenceDiagram
 - **Server：**鉴权、模型档案/凭据、入参和资源校验、任务持久化、排队、结果版本与配额。首期可在现有 Python 服务内增加模块和独立 Worker，不要求拆微服务。
 - **Worker：**取得已完成的服务端音频，经受控解码/分段调用 Provider；结果与任务终态在同一事务提交。不得通过 App 回调维持任务运行。
 - **Provider：**在服务端适配不同供应商的路径、鉴权、限制和响应；App 不直接对接供应商。
-- 转写和摘要继续是两个可独立定义/重试的子任务；目标改为 **Server 串联**“转写后摘要”，App 无须持续运行或逐步创建任务。组合流程的受理接口、许可、父子任务幂等和失败语义尚待补充；下列独立子任务路由不是完整流水线契约。上传不默认触发计费，开发者也不逐条手工处理。SSE、批量和公开分享不列入当前必需范围。
+- 转写和摘要继续是两个可独立定义/重试的子任务；目标改为 **Server 串联**“转写后摘要”，App 无须持续运行或逐步创建任务。组合流程见 [ProcessingRun 草案](processing-http-v1.md)，补充受理、父子任务幂等、部分结果、取消和恢复；下列独立子任务路由与 Schema 不代表流水线已经实现。上传不默认触发计费，开发者也不逐条手工处理。SSE、批量和公开分享不列入当前必需范围。
 
 另见 [实验直传状态](../superpowers/specs/2026-10-22-clip-direct-server-upload-design.md) 与 [Boa 桥接契约](clip-ingest-app-server-bridge.md)：实验接收端已能保存原始 Clip 片段，但标准化入 Boa 库尚未实现；完成后生成 canonical recording_id + SHA，再进入本稿仍待实现的转写/摘要流程。设备凭据无权直接调用模型管理或 AI 任务接口；现有 App 上传路径保持。直传后的自动 AI 需要单独的用户许可与幂等策略，本稿不默认开启。
 
@@ -144,6 +144,7 @@ Job 字段详见 Schema：id、kind、state、sequence、phase、progress（0..1
 - queued/running/cancel_requested 为活动状态；succeeded/failed/cancelled 为不可变终态。needs_attention 停止自动执行，等待对账或用户放弃，不能悄悄当失败后重发。
 - 持久队列有 worker lease、心跳与 fencing，防两个 worker 同时派发。外发前先落“可能已经发送”的标记，不能在崩溃恢复时假定供应商没收到；不持有数据库事务跨模型调用。
 - delivery=not_sent|submitted|confirmed|unknown。可确认未外发的任务重启后恢复排队；有供应商 task id 且适配器支持查询则对账；已/可能外发但无法对账转 needs_attention / `OUTCOME_UNKNOWN`。客户端幂等不保证供应商 exactly-once。
+- 由 ProcessingRun 管理的子任务，取消必须进入父流程相同用例/事务边界，具体见 [串联协议](processing-http-v1.md)，不能只改子任务状态而继续派发下一阶段。
 - cancel 对 queued 直接 cancelled；running 转 cancel_requested 后 best effort 调供应商取消。若成功结果先提交则保持 succeeded；取消先提交则丢弃迟到结果。取消不回收已产生费用，也不意味着音频从供应商消失。
 - 首期默认一个推理 worker；队列上限、每任务时长/输入预算由部署配置并公布。默认服务端总任务预算 30 分钟，含排队/重试/推理；预算耗尽时若外部状态未知，进入 needs_attention，而非假称已取消。App 关闭不影响该预算。
 - App 每 2 秒查询，断线退避到最多 30 秒，尊重 Retry-After；GET 单请求 30 秒超时，不等于取消后台任务。重开后用持久 job id 或 jobs 列表恢复，无需再次 POST。

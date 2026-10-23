@@ -1,8 +1,12 @@
 # Boa Voice：接口、传输与数据归属
 
-**协议约定稿 v0.3｜2026-10-22｜分支 `boa/desktop-https-integration`。**
+**协议约定稿 v0.4｜2026-10-23｜分支 `boa/desktop-https-integration`。**
 
 **一个 Server、两类角色、每份私有数据一个 owner。** 用户操作自己的录音和设备；开发者维护模型、后台任务和固件发布。以下“新增约定”尚未实现。
+
+![录音从上传到内容结果的闭环](images/boa-recording-lifecycle.png)
+
+图为目标流程：上传与下载已有验证；用户隔离、Clip 标准化和 AI 串联待实现。关键节点分别确认“字节已收、音频可播、结果完成”，不能用一个上传成功状态代替。
 
 ## 1. 统一入口与 endpoint
 
@@ -18,7 +22,9 @@
 | GET/HEAD `/api/audio/recordings/{id}/content` | 音频 ID、可选 Range → 音频字节/响应头 | 已有；归属校验待补 |
 | GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | 原始片段查询/上传 → 接收回执 | 实验已有；合并、用户绑定及入库待补 |
 | GET `/api/boa/v1/device-ingests`、`/api/boa/v1/device-ingests/{source_id}` | 本人设备接收记录 → 转码状态、标准音频引用 | 草案 |
-| POST `/api/boa/v1/transcriptions`、`/api/boa/v1/summaries` | 固定版本的输入与模型档案 → Job | 草案 |
+| POST `/api/boa/v1/processing-runs` | 音频 ID/SHA、两份模型修订、模板、许可 → run_id | 新增草案；Server 自动串联转写和摘要 |
+| GET `/api/boa/v1/processing-runs`、GET `/api/boa/v1/processing-runs/{id}`、POST `/api/boa/v1/processing-runs/{id}/cancel` | 列表/状态/取消 → 流程与结果引用 | 新增草案 |
+| POST `/api/boa/v1/transcriptions`、`/api/boa/v1/summaries` | 独立处理或仅重做摘要 → Job | 原子任务草案保留 |
 | GET `/api/boa/v1/jobs/{id}`、`/api/boa/v1/transcripts/{id}?revision=…`、`/api/boa/v1/summaries/{id}` | 本人任务/结果 ID → 状态或内容 | 草案 |
 | POST `/api/boa/v1/model-profiles`、PATCH `/api/boa/v1/model-profiles/{id}` | 开发者配置模型 endpoint、协议、凭据 → 脱敏档案 | 草案 |
 | GET `/api/boa/v1/firmware/releases`、`/api/boa/v1/firmware/releases/{id}/content` | 已发布版本 → 清单/固件包 | 草案 |
@@ -110,11 +116,25 @@ Server 内部执行 **原始 Opus → 验证元数据与解码 → 标准 WAV �
 | 续传 | `Range: bytes=N-`、`If-Range: "整文件SHA"` | 206 必须匹配 Content-Range 起点/总长与 ETag；200 时丢弃旧半文件，从零写，禁止追加 |
 | 入本地库 | 私有 `.part` 暂存 | 全文件 size/SHA 与元数据一致后原子提交；校验失败不可播放入库 |
 | 转写 | recording_id、expected_sha256、profile_id、profile_revision、consent；按 AI 契约带幂等键 | Server 再验本人归属、音频 complete 和哈希，返回 202 Job；结果继承音频 owner |
-| 摘要 | transcript_id、transcript_revision、profile_id、profile_revision、template、consent | 读取固定转写版本，生成本人结果；后台自动串联入口仍待定义 |
+| 摘要 | transcript_id、transcript_revision、profile_id、profile_revision、template、consent | 读取固定转写版本，生成本人结果；组合处理使用 processing-runs |
 
 未认证 401；无开发者操作权限 403；他人资源 404；冲突 409；非法 Range 416。存储 API 继续使用原 `detail` 错误体，AI/固件沿用各自契约，不把草案包装误写成已上线行为。
 
-## 6. 现状与下一步
+## 6. 后台如何自行完成与恢复
+
+用户点一次“转写并摘要”，App 提交 processing-runs 后只查询结果；开发者维护的 Server 自动执行。上传不默认触发计费。
+
+| 过程 | 确定的行为 |
+| --- | --- |
+| 受理 | 校验本人音频 complete/SHA、模型修订和许可；先持久化流程/事件/幂等记录，再返回 202 |
+| 转写 → 摘要 | 固定成功转写的 id/revision，再调摘要；两个阶段都完成才显示处理成功 |
+| App 退出 / Worker 重启 | 用原 run_id、阶段子任务和持久事件恢复，不依赖 App 常驻，不重跑成功阶段 |
+| 摘要失败 | 保留转写；允许只重做摘要，避免重新识别和重复费用 |
+| 供应商响应不确定 | needs_attention 停止自动重发，由开发者对账；取消不等于供应商退款或删除数据 |
+
+字段、状态、取消竞争及验收见 [自动串联协议](../contracts/processing-http-v1.md)。首版不扩展自助绑设备、上传即自动处理或远程无人值守刷机。
+
+## 7. 现状与下一步
 
 | 已有 | 待补 |
 | --- | --- |
@@ -122,6 +142,8 @@ Server 内部执行 **原始 Opus → 验证元数据与解码 → 标准 WAV �
 | Clip 实验直传、原始片段续传回执 | 并入同一个 Server、设备绑定/凭据映射、SourceRecord、解码和入库 |
 | AI、固件接口草案 | 后台任务和模型接入、App 结果展示、固件库；当前 HTTPS 固件拒绝应用 DFU，OTA 需另行验证 |
 
-开发顺序：**归属与鉴权 → 接收/入库闭环 → 转写摘要 → 固件库及真机升级**。本轮仅定文档。
+**今天推进（2026-10-23）：**补录音全流程图、Server 自动串联 endpoint、状态/恢复和验收矩阵。独立可实施性审阅已完成；本轮没有新增运行功能或部署。
+
+下一步按 **归属与鉴权 → Clip 接收/可播放入库 → 转写摘要 → 固件库及真机升级** 实施。验收至少覆盖：两用户隔离、断点续传、原始帧解码播放、App 退出续处理、Worker 重启、外发未知不重复计费、摘要单独重做。
 
 详细字段、边界和证据：[存储现有协议](../contracts/storage-http-v1.md) · [Clip 接入](../contracts/clip-ingest-app-server-bridge.md) · [AI](../contracts/ai-http-v1.md) · [固件](../contracts/firmware-http-v1.md) · [传输实测](../development/2026-10-22-desktop-http-status.md)。

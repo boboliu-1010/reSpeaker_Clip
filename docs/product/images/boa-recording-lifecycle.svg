@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+<defs>
+<marker id="green" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#15803d"/></marker>
+<marker id="orange" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#b45309"/></marker>
+<marker id="blue" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#2563eb"/></marker>
+</defs>
+<rect width="1440" height="900" fill="#f8fafc"/>
+<g font-family="PingFang SC,Heiti SC,Arial Unicode MS,sans-serif">
+<text x="45" y="57" font-size="32" fill="#0f172a" font-weight="600" text-anchor="start">Boa Voice：一次录音如何走完流程</text>
+<text x="45" y="91" font-size="20" fill="#334155" font-weight="normal" text-anchor="start">目标设计 · 2026-10-23   |   一个 Server，用户数据隔离，后台自动执行</text>
+<circle cx="52" cy="130" r="6" fill="#15803d"/>
+<text x="68" y="137" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">已有并验证</text>
+<circle cx="312" cy="130" r="6" fill="#b45309"/>
+<text x="328" y="137" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">实验能力</text>
+<circle cx="572" cy="130" r="6" fill="#2563eb"/>
+<text x="588" y="137" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">待开发（虚线边框）</text>
+<rect x="385" y="180" width="1010" height="550" rx="18" fill="#eef2f7" stroke="#94a3b8" stroke-width="2"/>
+<text x="410" y="216" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">同一个 Boa Server：身份 · 接收 · 音频库 · 任务 · 结果</text>
+<rect x="45" y="250" width="280" height="160" rx="18" fill="#ecfdf5" stroke="#86b897" stroke-width="2"/>
+<text x="65" y="287" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">App / 麦克风</text>
+<text x="65" y="322" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">录音、分片上传</text>
+<text x="65" y="350" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">校验下载、离线播放</text>
+<text x="65" y="390" font-size="16" fill="#15803d" font-weight="normal" text-anchor="start">已有传输验证</text>
+<rect x="45" y="530" width="280" height="160" rx="18" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
+<text x="65" y="567" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">Clip 设备</text>
+<text x="65" y="602" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">HTTPS 原始片段直传</text>
+<text x="65" y="630" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">单片续传 / stored 回执</text>
+<text x="65" y="670" font-size="16" fill="#9a3412" font-weight="normal" text-anchor="start">实验已有</text>
+<rect x="425" y="250" width="240" height="160" rx="18" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="445" y="287" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">① 固定归属</text>
+<text x="445" y="322" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">user_token → user_id</text>
+<text x="445" y="350" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">创建 owner_user_id</text>
+<text x="445" y="390" font-size="16" fill="#1d4ed8" font-weight="normal" text-anchor="start">鉴权与隔离待补</text>
+<rect x="745" y="250" width="260" height="160" rx="18" fill="#ecfdf5" stroke="#86b897" stroke-width="2"/>
+<text x="765" y="287" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">③ 标准音频库</text>
+<text x="765" y="322" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">complete + id + SHA</text>
+<text x="765" y="350" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">App 可下载与播放</text>
+<text x="765" y="390" font-size="16" fill="#15803d" font-weight="normal" text-anchor="start">App 已有 / Clip 入库待补</text>
+<rect x="1085" y="250" width="270" height="160" rx="18" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1105" y="287" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">④ 一次提交处理</text>
+<text x="1105" y="322" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">POST processing-runs</text>
+<text x="1105" y="350" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">Server 转写 → 摘要</text>
+<text x="1105" y="390" font-size="16" fill="#1d4ed8" font-weight="normal" text-anchor="start">用户确认后计费处理</text>
+<rect x="425" y="530" width="240" height="160" rx="18" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
+<text x="445" y="567" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">② Clip 接收模块</text>
+<text x="445" y="602" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">device_token → 绑定</text>
+<text x="445" y="630" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">原始 SHA / 固定 owner</text>
+<text x="445" y="670" font-size="16" fill="#9a3412" font-weight="normal" text-anchor="start">接收已有，绑定待补</text>
+<rect x="745" y="530" width="260" height="160" rx="18" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="765" y="567" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">校验与内部入库</text>
+<text x="765" y="602" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">原始 Opus → 标准 WAV</text>
+<text x="765" y="630" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">保留原件、归属和来源</text>
+<text x="765" y="670" font-size="16" fill="#1d4ed8" font-weight="normal" text-anchor="start">解码 / 幂等发布待补</text>
+<rect x="1085" y="530" width="270" height="160" rx="18" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1105" y="567" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">转写与摘要结果</text>
+<text x="1105" y="602" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">固定 transcript revision</text>
+<text x="1105" y="630" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">GET 流程与结果引用</text>
+<text x="1105" y="670" font-size="16" fill="#1d4ed8" font-weight="normal" text-anchor="start">保留部分成果、可恢复</text>
+<path d="M335,330 H415" fill="none" stroke="#15803d" stroke-width="3" marker-end="url(#green)"/>
+<text x="374" y="307" font-size="17" fill="#334155" font-weight="normal" text-anchor="middle">上传</text>
+<path d="M675,330 H735" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#blue)"/>
+<text x="705" y="307" font-size="17" fill="#334155" font-weight="normal" text-anchor="middle">写入</text>
+<path d="M1015,330 H1075" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#blue)"/>
+<text x="1045" y="307" font-size="17" fill="#334155" font-weight="normal" text-anchor="middle">许可</text>
+<path d="M335,610 H415" fill="none" stroke="#b45309" stroke-width="3" marker-end="url(#orange)"/>
+<text x="374" y="588" font-size="17" fill="#334155" font-weight="normal" text-anchor="middle">直传</text>
+<path d="M675,610 H735" fill="none" stroke="#b45309" stroke-width="3" marker-end="url(#orange)"/>
+<text x="705" y="588" font-size="17" fill="#334155" font-weight="normal" text-anchor="middle">解码</text>
+<path d="M875,520 V420" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#blue)"/>
+<text x="895" y="470" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">校验后发布</text>
+<path d="M1220,420 V520" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#blue)"/>
+<text x="1240" y="470" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">结果提交</text>
+<text x="45" y="778" font-size="21" fill="#0f172a" font-weight="600" text-anchor="start">三个成功条件：stored = 原始字节已收；complete = 标准音频可读；succeeded = 转写与摘要已完成。</text>
+<text x="45" y="823" font-size="20" fill="#334155" font-weight="normal" text-anchor="start">失败恢复：摘要失败保留转写；Worker 重启沿原任务恢复；供应商响应未知时停止自动重发。</text>
+<text x="45" y="860" font-size="19" fill="#475569" font-weight="normal" text-anchor="start">开发者维护模型、Worker 和故障核实；App 通过本人音频/流程/结果接口取回内容，无须常驻。</text>
+</g></svg>

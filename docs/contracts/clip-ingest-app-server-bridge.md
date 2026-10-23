@@ -138,13 +138,12 @@ App 第一阶段只增加：接收状态页、provenance、手动刷新/转换�
 设备 V2 stored（原始片段已保存）
   → SourceRecord/outbox → 元数据校验/解码 → 标准库 complete
   → App 取 canonical_ref → 用户确认数据发送及模型 profile/revision
-  → AI HTTP v1 POST transcriptions → Job/result
-  → POST summaries（固定转写版本/模板）→ App 展示/缓存
+  → POST processing-runs → Server 转写 → 固定版本摘要 → App 查询展示/缓存
 ```
 
 AI HTTP v1 全部仍是待实现协议；本次不把实验直传当成 AI 已开发。首期用户显式触发，原始上传 stored 不启动计费任务。设备中不放模型密钥，模型 endpoint/凭据仍在 Server。
 
-未来自动处理需增加服务端流水线：用户许可/模型及模板快照、预算、`source_id + canonical_sha + pipeline_revision` 幂等键、恢复/取消与失败阶段。不能靠 App 常驻观察完成事件触发后台“自动”任务，否则 App 退出后流程断裂。
+用户触发后的自动串联接口、预算、幂等与恢复已补 [ProcessingRun 草案](processing-http-v1.md)，尚未实现。Clip 原始 stored 仍不自动创建计费任务；设备上传即自动运行属于以后单独的授权策略，不借此默认开启。
 
 ## 8. 配置迁移与固件差距
 

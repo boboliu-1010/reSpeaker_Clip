@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="540" viewBox="0 0 1280 540">
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9" fill="#2563eb"/></marker></defs>
+<rect width="1280" height="540" fill="#f8fafc"/>
+<g font-family="PingFang SC,Heiti SC,Arial Unicode MS,sans-serif">
+<text x="35" y="53" font-size="30" fill="#0f172a" font-weight="600" text-anchor="start">Boa Voice 首期：上传后能看到自己的音频文件</text>
+<text x="35" y="88" font-size="19" fill="#334155" font-weight="normal" text-anchor="start">目标设计 · 新增列表接口、归属检查和文件索引尚未实现</text>
+<rect x="40" y="170" width="260" height="110" rx="17" fill="#ecfdf5" stroke="#86b897" stroke-width="2"/>
+<text x="60" y="207" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">App 上传本地录音</text>
+<text x="60" y="242" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">复用已有分片上传协议</text>
+<rect x="40" y="330" width="260" height="110" rx="17" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
+<text x="60" y="367" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">Clip 直传原始片段</text>
+<text x="60" y="402" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">保留 V2 续传与校验</text>
+<rect x="390" y="145" width="480" height="310" rx="17" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="415" y="181" font-size="24" fill="#0f172a" font-weight="600" text-anchor="start">同一个 Boa Server</text>
+<rect x="420" y="210" width="420" height="100" rx="17" fill="#fff" stroke="#bfdbfe" stroke-width="2"/>
+<text x="440" y="247" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">① 验证凭据，固定所属用户</text>
+<text x="440" y="282" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">用户 token / 设备 token → owner</text>
+<rect x="420" y="340" width="420" height="90" rx="17" fill="#fff" stroke="#bfdbfe" stroke-width="2"/>
+<text x="440" y="375" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">② 保存文件与元数据索引</text>
+<text x="440" y="409" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">完整校验后才进入清单；同源不重复</text>
+<path d="M310,225 H355 V245 H410" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M310,385 H340 V275 H410" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M630,315 V332" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="980" y="210" width="260" height="200" rx="17" fill="#f5f3ff" stroke="#b7a2d6" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1000" y="249" font-size="25" fill="#0f172a" font-weight="600" text-anchor="start">App 文件列表</text>
+<text x="1000" y="289" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">文件名 · 大小 · 时间</text>
+<text x="1000" y="323" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">来源 · 手动刷新</text>
+<text x="1000" y="373" font-size="17" fill="#6d28d9" font-weight="normal" text-anchor="start">只显示本人的完整文件</text>
+<path d="M845,385 H920 V320 H970" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="1010" y="451" font-size="18" fill="#1d4ed8" font-weight="normal" text-anchor="middle">GET /api/boa/v1/audio-files</text>
+<text x="40" y="506" font-size="20" fill="#475569" font-weight="normal" text-anchor="start">首期不要求播放、转码、转写摘要、模型配置或固件管理；Clip 原始文件先可见。</text>
+</g></svg>

@@ -1,5 +1,7 @@
 # Boa Voice 服务端转写与摘要 HTTP v1
 
+**首期范围调整（2026-10-23）：**当前只做“接收音频并在 App 列出本人文件”，见 [首期总览](../product/boa-voice-overview.md)。本文保留为后续设计参考，不作为首期开发依赖。
+
 **协议版本：1.0.0-draft.1｜状态：评审草案，尚未实现｜日期：2026-10-21。**
 
 本稿按用户选定的官方流程定义自有接口：**Clip → App 本地 → 自有 Server → 配置的模型服务 → App 获取结果**。替代旧设计“App 本地 AI Jobs 直连模型”的首期建议；不修改 Clip BLE/UDP，不改变已实现的 [存储 HTTP v1](storage-http-v1.md)。功能流程参考官方，不承诺与官方 `/api/v1/asr/*`、`/api/v1/llm/*` wire 兼容。

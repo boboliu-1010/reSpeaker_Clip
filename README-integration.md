@@ -1,6 +1,6 @@
 # Boa 桌面端 / Server / HTTPS 固件集成分支
 
-**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：按 endpoint、上传/下载字段和归属判定约定协议，附同一 Server 流程图与现状清单；其余设计与协议为开发附录。
+**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：首期仅接收并列出本人音频文件，复用 App/Clip 上传，只新增统一列表接口；转写摘要、模型配置与固件管理均后移。
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 
@@ -18,13 +18,15 @@
 
 后续开发机适配只为 Server launcher 增加可选 TLS 参数；桌面 `StorageClient` 明确在下载完成后关闭该次下载连接，避免下一次上传复用对端已退出的连接。`/api/audio`、持久存储逻辑、上传重试与哈希校验保持不变。测速程序可通过环境变量在当前进程信任开发证书，未改已安装 App 或系统证书设置。
 
+**首期只验收文件可见：**新增 `/api/boa/v1/audio-files` 统一列出完整接收的 App 文件和 Clip 原始片段；索引、用户归属和入口合并待开发，不要求首期播放/解码或 AI。以下是已有代码能力，保留不删。
+
 ## 保留的功能与边界
 
 - 桌面端：麦克风录音、输入选择、暂停/继续、暂存恢复、本地音频导入/播放/重命名/回收站、本地/远程来源显示、时间倒序、自动备份队列、服务器配置、Clip 连接设置和状态页。详见 [桌面使用说明](README-desktop.md)。
 - 音频 Server：`/api/audio` 分片上传、SHA-256 校验、持久化、列表、HTTP Range 下载与续传。仍是单用户令牌模式，文件与 SQLite 存在本机磁盘。详见 [Server README](services/audio_storage/README.md)。
 - 实验固件：STA 联网、HTTPS 分块续传、USB 配置、空闲自动上传及录音优先机制，保留实验基线的限制。其构建以 STA 替代设备 AP，USB 不暴露录音磁盘；旧 App 的 AP/Wi-Fi 同步路径不能直接当作该固件可用功能。
 
-**两套 Server 尚未打通：**
+**同一开发机的两个过渡接收进程尚未合并（目标为同一个 Server）：**
 
 ```text
 麦克风 / App 已支持的本地文件 → Boa 桌面端 → /api/audio → 本地磁盘 + SQLite
@@ -60,7 +62,7 @@ bash scripts/run-desktop.sh
 
 ## 后续接入顺序
 
-新增完整首版需求：开发细节参考 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约 draft.3](docs/contracts/firmware-http-v1.md)。已按确认方向补齐 endpoint、独立 start/cancel/resolve、设备/授权/profile/策略接口及 [请求响应样例](docs/contracts/examples/firmware-http-v1.json)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计；未部署固件 API 或刷机，硬件验收条件仍待核实。
+历史完整方案（已移出首期）：开发细节参考 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约 draft.3](docs/contracts/firmware-http-v1.md)。已按确认方向补齐 endpoint、独立 start/cancel/resolve、设备/授权/profile/策略接口及 [请求响应样例](docs/contracts/examples/firmware-http-v1.json)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计；未部署固件 API 或刷机，硬件验收条件仍待核实。
 
 1. 审核 [Clip → App/Server 桥接契约](docs/contracts/clip-ingest-app-server-bridge.md) 与 [直传设计](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)。
 2. 在 Server 实现原始录音接收、归属、可恢复转换与标准入库；保留现有 `/api/audio` 接口。

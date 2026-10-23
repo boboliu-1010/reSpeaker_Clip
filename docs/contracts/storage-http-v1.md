@@ -2,7 +2,7 @@
 
 **现状与目标：[统一总览](../product/boa-voice-overview.md)。** 本文记录现有单用户传输契约，不代表多人隔离已经实现。后续统一用户身份，补 owner_user_id 与全链路归属检查；旧数据明确归属后迁移，保留传输路径与语义。
 
-**新增约定与现有 wire 分开：**[总览第 2～5 节](../product/boa-voice-overview.md#2-信息归谁先定身份再接收文件) 定义每次上传/下载的身份检查，以及 Server 写入的 owner_user_id/source/provenance、创建上传的 Idempotency-Key。它们尚未落到本服务或本文件的 JSON Schema；下方示例保持当前实现，不能据此宣称已经隔离用户。
+**首期范围调整（2026-10-23）：**只复用本文上传能力，另增只读 `/api/boa/v1/audio-files` 统一列出本人 App 文件和 Clip 原始片段。具体见 [首期总览](../product/boa-voice-overview.md)。先补 Server 内部 owner 和列表索引；不要求首期扩展 UploadRecord 的 provenance、创建幂等头或下载/播放界面。下方仍记录现有 wire，不代表多人隔离已实现。
 
 **性质：当前实现的协议基线，不是新接口。** 对应 Server `1.0.1-beta.1`，源码内容树 `b63c783b3757b8e3183a157d7ef56fafd6475775`。若将来实现变化，需连同契约和用例更新。
 

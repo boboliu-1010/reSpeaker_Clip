@@ -1,5 +1,7 @@
 # 固件管理接口契约
 
+**首期范围调整（2026-10-23）：**当前只做“接收音频并在 App 列出本人文件”，见 [首期总览](../product/boa-voice-overview.md)。本文保留为后续设计参考，不作为首期开发依赖。
+
 **版本：1.0.0-draft.3｜日期：2026-10-22｜状态：按已确认方向修订，未实现，工程验收条件未完成。**
 
 本版按 [统一总览](../product/boa-voice-overview.md) 简化为用户和开发者两种角色，以资源归属代替主体 grants 矩阵；保留 start/cancel/resolve、设备登记、profile/策略管理与状态和租约边界。对应 [产品与模块设计](../superpowers/specs/2026-10-22-firmware-management-design.md)。**这里的固件 API 尚未部署；现有 `/api/audio` 不变。**

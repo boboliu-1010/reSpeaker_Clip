@@ -1,6 +1,6 @@
 # Boa Voice：接口、传输与数据归属
 
-**协议约定稿 v0.4｜2026-10-23｜分支 `boa/desktop-https-integration`。**
+**协议约定稿 v0.5｜2026-10-23｜分支 `boa/desktop-https-integration`。**
 
 **一个 Server、两类角色、每份私有数据一个 owner。** 用户操作自己的录音和设备；开发者维护模型、后台任务和固件发布。以下“新增约定”尚未实现。
 
@@ -12,22 +12,42 @@
 
 同一个 Boa Server 提供设备接收和 App 业务接口。开发地址当前为 `https://100.58.19.213:9528`；Clip 暂在同机 9527 接收，后续并入统一入口。全部使用 HTTPS；JSON 传元数据，二进制传音频。
 
-| 方法与路径（相对于 Server 根地址） | 输入 → 输出 | 状态 |
-| --- | --- | --- |
-| POST `/api/audio/uploads` | 文件元数据 → `id,chunk_size,state,parts` | 已有；归属校验待补 |
-| GET `/api/audio/uploads/{id}` | 上传 ID → 状态、已收分片 | 已有；归属校验待补 |
-| PUT `/api/audio/uploads/{id}/parts/{index}` | 分片字节、分片 SHA → `index,size,sha256` | 已有；归属校验待补 |
-| POST `/api/audio/uploads/{id}/complete` | 上传 ID → 合并状态 | 已有；归属校验待补 |
-| GET `/api/audio/recordings`、`/api/audio/recordings/{id}` | 列表或元数据 → complete 音频 | 已有；按用户过滤待补 |
-| GET/HEAD `/api/audio/recordings/{id}/content` | 音频 ID、可选 Range → 音频字节/响应头 | 已有；归属校验待补 |
-| GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | 原始片段查询/上传 → 接收回执 | 实验已有；合并、用户绑定及入库待补 |
-| GET `/api/boa/v1/device-ingests`、`/api/boa/v1/device-ingests/{source_id}` | 本人设备接收记录 → 转码状态、标准音频引用 | 草案 |
-| POST `/api/boa/v1/processing-runs` | 音频 ID/SHA、两份模型修订、模板、许可 → run_id | 新增草案；Server 自动串联转写和摘要 |
-| GET `/api/boa/v1/processing-runs`、GET `/api/boa/v1/processing-runs/{id}`、POST `/api/boa/v1/processing-runs/{id}/cancel` | 列表/状态/取消 → 流程与结果引用 | 新增草案 |
-| POST `/api/boa/v1/transcriptions`、`/api/boa/v1/summaries` | 独立处理或仅重做摘要 → Job | 原子任务草案保留 |
-| GET `/api/boa/v1/jobs/{id}`、`/api/boa/v1/transcripts/{id}?revision=…`、`/api/boa/v1/summaries/{id}` | 本人任务/结果 ID → 状态或内容 | 草案 |
-| POST `/api/boa/v1/model-profiles`、PATCH `/api/boa/v1/model-profiles/{id}` | 开发者配置模型 endpoint、协议、凭据 → 脱敏档案 | 草案 |
-| GET `/api/boa/v1/firmware/releases`、`/api/boa/v1/firmware/releases/{id}/content` | 已发布版本 → 清单/固件包 | 草案 |
+下面按**业务功能**查接口。路径相对于同一个 Server 根地址；用户请求的归属校验按第 2 节执行。标为“已有”的音频接口仍需补多人隔离。
+
+**用户 App 与 Clip：**App 负责发起、查询和展示，Clip 只用设备凭据上传/对账；后台调度仍由开发者维护的 Server 执行。
+
+| 业务功能 | API | 做什么 / 成功后得到什么 | 状态 |
+| --- | --- | --- | --- |
+| 开始备份一条本地录音 | POST `/api/audio/uploads` | 提交文件名、大小、整文件 SHA 和 MIME，取得上传 ID、分片大小和已收片列表 | 已有；隔离待补 |
+| 中断后继续上传 | GET `/api/audio/uploads/{id}`；PUT `/api/audio/uploads/{id}/parts/{index}` | 查询缺片，只补传未确认分片；逐片核对大小/SHA，不从头重传 | 已有；隔离待补 |
+| 确认备份完成 | POST `/api/audio/uploads/{id}/complete`；GET `/api/audio/uploads/{id}` | 触发合并与整文件校验；查询到 complete 才显示已备份 | 已有；隔离待补 |
+| 放弃未完成上传 | DELETE `/api/audio/uploads/{id}` | 取消尚未提交的会话；finalizing/complete 时 409，不能借此删除成品音频 | 已有；隔离待补 |
+| 查看远程音频库 | GET `/api/audio/recordings`、GET `/api/audio/recordings/{id}` | 显示已完成录音列表和单条文件信息；取得下载校验所需大小/SHA | 已有；用户过滤待补 |
+| 下载、播放及断点续传 | GET/HEAD `/api/audio/recordings/{id}/content` | HEAD 查长度/类型/ETag；GET 取字节，Range 续传；全文件校验后进入本地播放器 | 已有；隔离待补 |
+| Clip 自动上传与补传 | GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | Clip 查确认 offset、续传原始片段；stored 仅表示原始字节已接收 | 实验已有；合并/绑定待补 |
+| 查看 Clip 录音处理进度 | GET `/api/boa/v1/device-ingests`、GET `/api/boa/v1/device-ingests/{source_id}` | 展示接收、待元数据、转码、入库状态；ready 才拿到可播放的标准音频引用 | 草案 |
+| 重试 Clip 转码入库 | POST `/api/boa/v1/device-ingests/{source_id}/retry` | 只重试失败的 Server 转换/发布，不要求设备重传；缺元数据时拒绝 | 草案 |
+| 选择可用转写/摘要模型 | GET `/api/boa/v1/model-profiles` | App 展示开发者开放的脱敏模型档案及修订；不获取供应商密钥 | 草案 |
+| 一键转写并摘要 | POST `/api/boa/v1/processing-runs` | 用户确认输入、模型和模板后取得 run_id；Server 自动执行两个阶段 | 草案 |
+| 重开 App 后查看处理结果 | GET `/api/boa/v1/processing-runs`、GET `/api/boa/v1/processing-runs/{id}` | 找回本人流程、进度、错误及转写/摘要引用，不重新提交任务 | 草案 |
+| 取消内容处理 | POST `/api/boa/v1/processing-runs/{id}/cancel` | 请求停止未执行阶段；已外发时不保证立即取消/退款，结果未知则待核实 | 草案 |
+| 只转写 / 只重做摘要 | POST `/api/boa/v1/transcriptions`、POST `/api/boa/v1/summaries` | 分别创建独立 Job；摘要可沿用已有转写，避免重复识别 | 草案 |
+| 读取或修改识别内容 | GET `/api/boa/v1/jobs/{id}`；GET/PUT `/api/boa/v1/transcripts/{id}`；GET `/api/boa/v1/summaries/{id}` | 查询任务、读固定版本转写、编辑产生新修订、读摘要；摘要绑定旧转写时标记过期，不自动重跑。GET transcript 必填 revision，PUT 带 expected_revision | 草案 |
+| 查看和缓存可用固件 | GET `/api/boa/v1/firmware/releases`、GET `/api/boa/v1/firmware/releases/{id}/content` | 展示适用已发布版本、说明和数据影响，下载并校验固件；已缓存不代表已安装 | 草案 |
+| 手动升级并查看结果 | POST `/api/boa/v1/firmware/upgrade-authorizations`；POST `/api/boa/v1/firmware/upgrades/{id}/start`；GET `/api/boa/v1/firmware/upgrades/{id}` | 检查本人设备/兼容性、取得开始许可、由 App 执行设备升级并复核运行镜像；HTTP 成功不等于刷机成功 | 草案；当前 HTTPS 固件拒绝应用 DFU |
+
+**开发者维护入口：**下面的写操作不放在普通用户 App；用户/设备凭据不能因此获得后台权限。
+
+| 业务功能 | API | 做什么 / 成功后得到什么 | 状态 |
+| --- | --- | --- | --- |
+| 配置模型服务与密钥 | POST `/api/boa/v1/model-profiles`；PATCH `/api/boa/v1/model-profiles/{id}` | 保存 Azure/兼容协议、endpoint、模型/部署与只写凭据；修改生成新 revision，响应脱敏 | 草案 |
+| 检查模型配置或推理连接 | POST `/api/boa/v1/model-profiles/{id}/test` | metadata 只校验配置/出站策略；inference 经明确计费确认才做合成输入探测，不使用用户录音 | 草案 |
+| 导入、上传和校验固件包 | POST `/api/boa/v1/firmware/packages/uploads`；PUT `/api/boa/v1/firmware/packages/uploads/{id}/content`；POST `/api/boa/v1/firmware/packages/uploads/{id}/complete` | 创建制品上传、接收字节、异步校验；GET 同一上传资源查询结果。只有 ready 包才可发布 | 草案 |
+| 发布或撤下固件版本 | POST `/api/boa/v1/firmware/releases`；POST `/api/boa/v1/firmware/releases/{id}/withdraw` | 发布不可变版本；撤下阻止新下载和升级，不自动回滚设备 | 草案 |
+| 维护固件兼容与升级策略 | POST `/api/boa/v1/firmware/profiles`；PUT `/api/boa/v1/firmware/profiles/{id}/policy` | 定义经过验证的板型、镜像布局、信任和数据保留条件，生成策略修订 | 草案 |
+| 核实固件升级异常 | POST `/api/boa/v1/firmware/upgrades/{id}/resolve` | 提交原因和设备观测证据，核实后归档/释放租约；不提供无证据强制解锁 | 草案 |
+
+用户/设备凭据签发、设备绑定和 AI 外发未知的核实，首版由受控 CLI 完成，**没有额外假定一套已上线的后台 API**。音频成品删除、改名、标签、分享目前没有接口，不因界面有按钮就当作 Server 已支持。
 
 模型 endpoint 是 **Server → 模型供应商** 的地址，开发者配置 `base_url,protocol,model/deployment,credential`；不与 App 的 Server 地址混用，供应商密钥不下发 App。
 
@@ -142,7 +162,7 @@ Server 内部执行 **原始 Opus → 验证元数据与解码 → 标准 WAV �
 | Clip 实验直传、原始片段续传回执 | 并入同一个 Server、设备绑定/凭据映射、SourceRecord、解码和入库 |
 | AI、固件接口草案 | 后台任务和模型接入、App 结果展示、固件库；当前 HTTPS 固件拒绝应用 DFU，OTA 需另行验证 |
 
-**今天推进（2026-10-23）：**补录音全流程图、Server 自动串联 endpoint、状态/恢复和验收矩阵。独立可实施性审阅已完成；本轮没有新增运行功能或部署。
+**今天推进（2026-10-23）：**补录音全流程图、Server 自动串联 endpoint、API 业务功能表、状态/恢复和验收矩阵。独立可实施性审阅已完成；本轮没有新增运行功能或部署。
 
 下一步按 **归属与鉴权 → Clip 接收/可播放入库 → 转写摘要 → 固件库及真机升级** 实施。验收至少覆盖：两用户隔离、断点续传、原始帧解码播放、App 退出续处理、Worker 重启、外发未知不重复计费、摘要单独重做。
 

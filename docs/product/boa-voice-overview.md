@@ -1,6 +1,6 @@
 # Boa Voice：首期只做音频文件列表
 
-**v0.6｜2026-10-23｜设计约定，新增接口尚未实现。**
+**v0.7｜2026-10-23｜设计约定，新增接口尚未实现。**
 
 ## 1. 首期目标
 
@@ -14,13 +14,22 @@ App 只有一个文件列表：文件名、大小、时间、来源（App / Clip
 
 ## 2. 只保留三组必要接口
 
-目标只有一个 Boa Server。开发机业务入口当前为 `https://100.58.19.213:9528`，Clip 暂用同机 9527；接收模块并入后统一入口。
+**App 和 Clip 都连接同一个 Boa Server，配置同一个 `SERVER_URL`。** Boa Server 本身包含 App 上传、Clip 接收、身份校验、文件存储和统一列表查询，按一个服务部署和维护。
+
+| 同一服务内的模块 | 职责 |
+| --- | --- |
+| App 上传 / Clip 接收 | 分别处理已有分片协议和 V2 设备协议，完整校验后登记文件 |
+| 身份与归属 | 验证用户或设备凭据，固定所属用户 |
+| 文件存储与索引 | 统一保存两种来源的原件和元数据 |
+| 文件列表 | 按当前用户查询同一份索引，返回 App 展示 |
+
+`SERVER_URL` 是 Server 的 HTTPS 根地址。下列所有路径都追加到同一个 `SERVER_URL`；App 用用户 token，Clip 用设备 token。
 
 | 功能 | API | 必要信息与成功条件 | 当前状态 |
 | --- | --- | --- | --- |
 | App 查看自己的文件 | GET `/api/boa/v1/audio-files?offset=0&limit=50` | 用户 token；返回完整接收的文件元数据，见下节 | **唯一新增的 App 列表接口，未实现** |
 | App 上传本地录音 | POST `/api/audio/uploads`；PUT `/api/audio/uploads/{id}/parts/{index}`；POST `/api/audio/uploads/{id}/complete`；GET `/api/audio/uploads/{id}` | 创建带 filename/size/sha256/mime；分片带 X-Content-SHA256；查询到 complete 才列入文件清单 | 已有上传；用户归属/列表索引待补 |
-| Clip 上传原始录音 | GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | 设备 token；整片大小/SHA，PUT 另带 Content-Length/Upload-Offset/本块 SHA；stored 后登记列表 | 实验已有接收；合并/归属/索引待补 |
+| Clip 上传原始录音 | GET/PUT `/v2/devices/{device}/recordings/{session}/{segment}` | 设备 token；整片大小/SHA，PUT 另带 Content-Length/Upload-Offset/本块 SHA；stored 后登记列表 | 复用 V2 接收实现；归属/索引待补 |
 
 不另加文件详情、下载、播放、任务进度、重试或后台管理 API。原上传分片、Clip 续传的具体字段保持原协议，见 [存储基线](../contracts/storage-http-v1.md)、[Clip 接收基线](../contracts/clip-ingest-app-server-bridge.md)。
 
@@ -67,6 +76,7 @@ App 只有一个文件列表：文件名、大小、时间、来源（App / Clip
 1. App 文件或 Clip 原始片段上传完成后，刷新能看到一条记录，名称/大小/时间/来源正确。
 2. 中断上传不入列表；同源重传、Server 重启不产生重复记录或丢失归属。
 3. 两个用户分别只能看到自己的文件，无效 token 不能列出内容。
+4. App 与 Clip 使用同一个 SERVER_URL；App 上传和 Clip 直传的完整文件都能在同一个列表查到。
 
 先完成“接收 → 归属 → 持久索引 → 本人文件列表”。**能列文件不等于能播放、能转写或已完成真机联调。**
 

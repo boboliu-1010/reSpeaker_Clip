@@ -4,7 +4,7 @@
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
 
-开发机为 `bobo@100.58.19.213`。Boa 音频库现使用 **`https://100.58.19.213:9528`**，Mac 上桌面同一客户端已完成真实跨机器音频传输；不依赖 SSH 转发。见 [当前部署与证书说明](docs/development/server-100.58.19.213.md)、[桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。Roger 的 9527 是同一开发机上暂时单独运行的 Clip 接收进程；目标并入同一个 Boa Server，统一入口和内部音频入库；已安装 GUI App 尚未配置这份开发证书。早期 [部署验证记录](docs/development/2026-10-22-server-deployment-verification.md) 保留当时的 loopback 状态。
+**服务设计：App 与 Clip 都连接同一个 Boa Server，使用同一个 SERVER_URL。** 服务包含 App 上传、Clip 接收、统一鉴权、文件存储和列表接口。开发机为 `bobo@100.58.19.213`；部署参数见 [部署记录](docs/development/server-100.58.19.213.md)，已有跨机器传输证据见 [桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。这些记录不代表首期归属与统一列表已经实现。
 
 ## 集成来源
 
@@ -18,7 +18,7 @@
 
 后续开发机适配只为 Server launcher 增加可选 TLS 参数；桌面 `StorageClient` 明确在下载完成后关闭该次下载连接，避免下一次上传复用对端已退出的连接。`/api/audio`、持久存储逻辑、上传重试与哈希校验保持不变。测速程序可通过环境变量在当前进程信任开发证书，未改已安装 App 或系统证书设置。
 
-**首期只验收文件可见：**新增 `/api/boa/v1/audio-files` 统一列出完整接收的 App 文件和 Clip 原始片段；索引、用户归属和入口合并待开发，不要求首期播放/解码或 AI。以下是已有代码能力，保留不删。
+**首期只验收文件可见：**新增 `/api/boa/v1/audio-files` 统一列出完整接收的 App 文件和 Clip 原始片段；统一索引和用户归属待开发，不要求首期播放/解码或 AI。以下是已有代码能力，保留不删。
 
 ## 保留的功能与边界
 
@@ -26,14 +26,15 @@
 - 音频 Server：`/api/audio` 分片上传、SHA-256 校验、持久化、列表、HTTP Range 下载与续传。仍是单用户令牌模式，文件与 SQLite 存在本机磁盘。详见 [Server README](services/audio_storage/README.md)。
 - 实验固件：STA 联网、HTTPS 分块续传、USB 配置、空闲自动上传及录音优先机制，保留实验基线的限制。其构建以 STA 替代设备 AP，USB 不暴露录音磁盘；旧 App 的 AP/Wi-Fi 同步路径不能直接当作该固件可用功能。
 
-**同一开发机的两个过渡接收进程尚未合并（目标为同一个 Server）：**
+**首期同一服务内的数据流（设计，待实现）：**
 
 ```text
-麦克风 / App 已支持的本地文件 → Boa 桌面端 → /api/audio → 本地磁盘 + SQLite
-Clip 实验固件 → HTTPS /v2/devices/.../recordings/... → 实验接收端 → 原始录音分段
+App  ── /api/audio/uploads/... ──┐
+                                ├─ Boa Server ─ 归属/文件索引 ─ /api/boa/v1/audio-files ─ App
+Clip ── /v2/devices/... ─────────┘
 ```
 
-Clip 的 `stored` 回执仅表示原始字节已接收；不会自动进入 App 的音频列表，也不能直接保证标准音频播放。尚需 SourceRecord 元数据、设备与用户归属、可靠出站队列、原始 Opus 解码/封装和标准音频入库桥接。转写、摘要、自定义模型 endpoint 的 Server 执行仍是协议设计。本次不新增这些运行时功能。
+Clip 的 stored 表示原始片段完整接收；首期在同一个 Server 登记来源、所属用户和元数据后即可显示文件。原始片段不要求首期解码或播放，转写摘要与固件管理不在首期。上述归属与统一列表仍待实现，不以现有上传验证代替完整验收。
 
 ## 本地开发启动
 
@@ -58,15 +59,14 @@ bash scripts/run-desktop.sh
 
 该入口是 `mobile/app/lib/desktop_main.dart`，不是 `mobile/sdk/flutter/example`。本地构建可能使用相同的 App 数据目录；如要清空/隔离已有用户数据，应另外安排，不能直接删除。
 
-实验 HTTPS 接收端单独启动，证书、设备令牌、存储目录也与音频服务分别配置；按 [实验工具 README](tools/https_poc/README.md) 的凭据生成与接收端命令执行。设备配置通过 USB 工具完成，当前桌面界面尚未提供这一配置流程。请先阅读该文档和 [实机限制](docs/https-prehardware-test-results.md)，不要直接照搬历史证书或私有配置。
+上述启动命令仅用于现有音频服务基线，不代表已具备首期 Clip 接收和统一列表。实验 [接收工具](tools/https_poc/README.md) 作为协议/续传实现参考；首期由同一个 Boa Server 提供 V2 接收路由。设备连接参数仍按 [实机限制](docs/https-prehardware-test-results.md) 核实。
 
 ## 后续接入顺序
 
 历史完整方案（已移出首期）：开发细节参考 [固件管理审阅清单](docs/product/firmware-management-review.md)，再看 [设计](docs/superpowers/specs/2026-10-22-firmware-management-design.md) 与 [HTTP 契约 draft.3](docs/contracts/firmware-http-v1.md)。已按确认方向补齐 endpoint、独立 start/cancel/resolve、设备/授权/profile/策略接口及 [请求响应样例](docs/contracts/examples/firmware-http-v1.json)。范围覆盖自建固件库、版本分发、角色权限、App BLE 手动升级和审计；未部署固件 API 或刷机，硬件验收条件仍待核实。
 
-1. 审核 [Clip → App/Server 桥接契约](docs/contracts/clip-ingest-app-server-bridge.md) 与 [直传设计](docs/superpowers/specs/2026-10-22-clip-direct-server-upload-design.md)。
-2. 在 Server 实现原始录音接收、归属、可恢复转换与标准入库；保留现有 `/api/audio` 接口。
-3. 在 App 加入设备直传状态、来源、处理失败与重新获取内容流程；硬件联调 BLE 命令差异。
-4. 按 [AI HTTP 契约](docs/contracts/ai-http-v1.md) 实现转写、摘要、模型 endpoint 配置与凭据管理。
+1. 在同一个 Boa Server 复用 App 上传与 Clip V2 接收，补设备/用户归属。
+2. 增加持久文件索引及只读 audio-files 列表，App 只增加本人文件列表和刷新。
+3. 验证两个来源文件可见、断点重传/重启不丢归属、用户之间隔离。
 
 本次实际验证及未通过项见 [集成验证记录](docs/product/boa-desktop-https-integration-verification.md)。历史 Beta 安装验收只属于原版本，不等于本分支重新完成实机验收。

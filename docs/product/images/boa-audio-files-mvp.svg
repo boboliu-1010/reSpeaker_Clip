@@ -3,13 +3,13 @@
 <rect width="1280" height="540" fill="#f8fafc"/>
 <g font-family="PingFang SC,Heiti SC,Arial Unicode MS,sans-serif">
 <text x="35" y="53" font-size="30" fill="#0f172a" font-weight="600" text-anchor="start">Boa Voice 首期：上传后能看到自己的音频文件</text>
-<text x="35" y="88" font-size="19" fill="#334155" font-weight="normal" text-anchor="start">目标设计 · 新增列表接口、归属检查和文件索引尚未实现</text>
+<text x="35" y="88" font-size="19" fill="#334155" font-weight="normal" text-anchor="start">同一个 SERVER_URL · 服务包含 App 上传和 Clip 接收 · 归属与列表索引待实现</text>
 <rect x="40" y="170" width="260" height="110" rx="17" fill="#ecfdf5" stroke="#86b897" stroke-width="2"/>
 <text x="60" y="207" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">App 上传本地录音</text>
-<text x="60" y="242" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">复用已有分片上传协议</text>
+<text x="60" y="242" font-size="16" fill="#334155" font-weight="normal" text-anchor="start">SERVER_URL + /api/audio/...</text>
 <rect x="40" y="330" width="260" height="110" rx="17" fill="#fff7ed" stroke="#d6a66e" stroke-width="2"/>
 <text x="60" y="367" font-size="23" fill="#0f172a" font-weight="600" text-anchor="start">Clip 直传原始片段</text>
-<text x="60" y="402" font-size="18" fill="#334155" font-weight="normal" text-anchor="start">保留 V2 续传与校验</text>
+<text x="60" y="402" font-size="16" fill="#334155" font-weight="normal" text-anchor="start">SERVER_URL + /v2/...</text>
 <rect x="390" y="145" width="480" height="310" rx="17" fill="#eff6ff" stroke="#93b4db" stroke-width="2" stroke-dasharray="8 6"/>
 <text x="415" y="181" font-size="24" fill="#0f172a" font-weight="600" text-anchor="start">同一个 Boa Server</text>
 <rect x="420" y="210" width="420" height="100" rx="17" fill="#fff" stroke="#bfdbfe" stroke-width="2"/>

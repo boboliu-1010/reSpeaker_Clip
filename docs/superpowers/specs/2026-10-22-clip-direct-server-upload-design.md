@@ -6,7 +6,7 @@
 
 **阅读顺序：**先看本文的状态对照，再看 [实验直传 → Boa App/Server 接入契约](../../contracts/clip-ingest-app-server-bridge.md)。原 [App 设备契约](../../contracts/clip-device-v1.md)、[音频存储](../../contracts/storage-http-v1.md)、[服务端 AI 草案](../../contracts/ai-http-v1.md)继续各自维护现有行为/规划边界。
 
-**统一架构补充：**按 [总览](../../product/boa-voice-overview.md)，Clip 接收和业务接口最终收敛在同一个 Boa Server；当前 9527/9528 是同一开发机上的过渡进程，不能画成长期两套服务。保留设备 V2 兼容路径，内部完成归属、转码和音频发布；模块合并尚未实现。
+**首期架构以 [总览](../../product/boa-voice-overview.md) 为准：App 与 Clip 都连接同一个 Boa Server、同一个 SERVER_URL。** 服务直接包含 V2 接收、App 上传、身份归属、文件存储和统一列表。原始录音先能列出即可；本文后续的转码、AI 与产品化规划不作为首期依赖。
 
 ## 1. 本次审视的版本与证据
 

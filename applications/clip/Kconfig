@@ -40,6 +40,17 @@ config CLIP_RECORDING_HASH
 	  Publish CRC-protected content metadata only after data sync and close.
 	  Uploads without valid metadata retain the full-file hashing fallback.
 
+config CLIP_DTLS_PREFETCH
+	bool "Experimental asynchronous 8 KiB SD upload prefetch"
+	depends on CLIP_DTLS_UPLOAD && CLIP_DTLS_PROFILE
+	select DYNAMIC_THREAD
+	select DYNAMIC_THREAD_ALLOC
+	default n
+	help
+	  USB-selectable per-file producer with a separate read handle, one extra
+	  8 KiB block and a 4 KiB heap stack. Default runtime mode remains off.
+	  Join before releasing storage or handing recording back to the writer.
+
 config CLIP_DTLS_WINDOW_PACKETS
 	int "Maximum logical DTLS in-flight packets"
 	depends on CLIP_DTLS_UPLOAD

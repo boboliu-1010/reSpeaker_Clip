@@ -7,6 +7,57 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class BatchWorkerTest(unittest.TestCase):
+    def test_network_check_reuses_worker_and_cleans_up_success_failure_and_recording_cancel(self):
+        code = self.worker_fixture().split('int main(', 1)[0]
+        point = code.index('static int upload_file(')
+        adapter = r'''
+static int app_lock,checking_network=1,network_result,network_cleanup,reported;
+static int control_lock;
+static int64_t next_auto;
+#define K_FOREVER 0
+static void k_mutex_lock(int*m,int wait){(void)wait;assert(!*m);*m=1;}
+static void k_mutex_unlock(int*m){assert(*m);*m=0;}
+static int app_segment;
+static char app_session[15];
+typedef int k_spinlock_key_t;
+static int k_spin_lock(int*m){assert(!*m);*m=1;return 0;}
+static void k_spin_unlock(int*m,int key){(void)key;assert(*m);*m=0;}
+struct wifi_station_network {char ip[16],netmask[16],gateway[16];};
+#include "upload_app.h"
+static void wifi_station_get_network(struct wifi_station_network*n){strcpy(n->ip,"192.168.2.180");}
+void upload_app_publish(const char*type){(void)type;assert(0);}
+void https_poc_app_status(struct upload_app_status*out){(void)out;assert(0);}
+void upload_app_publish_result(const char*type,const struct upload_app_status*out){(void)type;(void)out;assert(0);}
+static void app_network_done(int ret,const struct wifi_station_network*n,int cleanup){
+ assert(checking_network&&!radio&&!buffers&&!active&&cleanup==network_cleanup);reported++;checking_network=0;
+ assert(ret==network_result||ret==network_cleanup);if(!network_result)assert(!strcmp(n->ip,"192.168.2.180"));
+}
+'''
+        code = '#define CONFIG_CLIP_UPLOAD_APP 1\n'+code[:point]+adapter+code[point:]
+        code = code.replace('radio=true;wifi_starts++;return 0;',
+                            'radio=true;wifi_starts++;if(network_result==-ECANCELED)cancelled=1;return network_result;')
+        # These adapter values must precede the original Wi-Fi stub.
+        code = code.replace('static int app_lock,checking_network=1,network_result,network_cleanup,reported;',
+                            'static int app_lock,checking_network=1,reported;')
+        code = 'static int network_result,network_cleanup;\n'+code
+        code = code.replace('if(ended)longjmp(done,1);return 1;', 'if(ended)longjmp(done,1);return 0;')
+        code = code.replace('return mode==RADIO_ERROR?-EIO:0;', 'return network_cleanup;')
+        code += r'''
+int main(int argc,char**argv){
+ assert(argc==2);mode=atoi(argv[1]);active=1;auto_job=0;
+ network_result=mode==1?-ENETUNREACH:mode==2?-ECANCELED:0;
+ network_cleanup=mode==3?-EIO:0;
+ if(!setjmp(done))worker(NULL,NULL,NULL);
+ assert(ended&&!active&&!checking_network&&reported==1&&!uploads&&!connections&&!buffers);
+ assert(last_scheduled==(network_result?network_result:network_cleanup));
+ assert(stage==(mode==2?CANCELLED:mode?FAILED:SUCCEEDED));
+ assert(next_auto==now+5000);return 0;
+}
+'''
+        for mode in range(4):
+            with self.subTest(mode=mode):
+                compile_run(code, [str(mode)])
+
     def worker_fixture(self):
         source = (ROOT/'applications/clip/src/https_poc.c').read_text()
         worker = source[source.index('static int upload_file('):source.index('/* Full ECDSA handshakes')]

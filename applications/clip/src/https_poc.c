@@ -18,7 +18,9 @@
 #ifdef CONFIG_CLIP_DTLS_UPLOAD
 #include "dtls_upload.h"
 static struct dtls_upload *datagram;
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
 static struct dtls_upload_stats last_datagram;
+#endif
 static atomic_t datagram_received;
 static uint32_t cache_offset, cache_length;
 #ifdef CONFIG_CLIP_DTLS_PROFILE
@@ -31,6 +33,9 @@ BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_
              "Initial DTLS window must not exceed its ceiling");
 #endif
 #include "upload_perf.h"
+#ifdef CONFIG_CLIP_UPLOAD_APP
+#include "upload_app.h"
+#endif
 #ifdef CONFIG_CLIP_TCP_TRACE
 #include "tcp_trace.h"
 #endif
@@ -114,6 +119,13 @@ static struct upload_buffers {
 #define io (buffers->file_io)
 static char expected_hash[65];
 static size_t file_length;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+static struct k_spinlock app_lock;
+static atomic_t checking_network, app_enabled, app_job_network;
+static uint32_t app_job, app_segment;
+static char app_session[15];
+static struct upload_app_network app_network = {.state="idle"};
+#endif
 #ifndef CONFIG_CLIP_DTLS_UPLOAD
 #define recv_buffer (buffers->receive)
 #define response_body (buffers->body)
@@ -156,6 +168,53 @@ enum { IDLE, PREPARING, CONNECTING, TLS, SENDING, VERIFYING, SUCCEEDED, FAILED, 
 static const char *const names[] = {"idle", "preparing", "connecting", "tls", "sending",
     "verifying", "succeeded", "failed", "cancelled"};
 
+#ifdef CONFIG_CLIP_UPLOAD_APP
+void https_poc_app_status(struct upload_app_status *out)
+{
+    memset(out, 0, sizeof(*out));
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    out->job = app_job; out->segment = app_segment;
+    memcpy(out->session, app_session, sizeof(out->session));
+    out->stage = names[atomic_get(&stage)];
+    out->active = https_poc_active();
+    out->network_check = atomic_get(&app_job_network);
+    out->automatic = atomic_get(&auto_job);
+    out->enabled = atomic_get(&app_enabled); out->paused = atomic_get(&auto_paused);
+    out->sent = atomic_get(&bytes_sent); out->confirmed = atomic_get(&confirmed);
+    out->size = atomic_get(&total_bytes); out->error = atomic_get(&last_error);
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    out->received = atomic_get(&datagram_received);
+#else
+    out->received = out->confirmed;
+#endif
+    k_spin_unlock(&app_lock, key);
+}
+void https_poc_app_network(struct upload_app_network *out)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    *out = app_network;
+    k_spin_unlock(&app_lock, key);
+}
+static void app_reset_network(const char *state)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    memset(&app_network, 0, sizeof(app_network)); app_network.state = state; app_network.job = app_job;
+    k_spin_unlock(&app_lock, key);
+}
+static void app_network_done(int ret, const struct wifi_station_network *network, int cleanup)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    app_network.state = ret == -ECANCELED ? "cancelled" : ret ? "failed" : "succeeded";
+    app_network.checked_ms = (uint32_t)k_uptime_get();
+    app_network.error = ret; app_network.cleanup_error = cleanup;
+    if (network) { memcpy(app_network.ip, network->ip, sizeof(app_network.ip)); }
+    struct upload_app_network result = app_network;
+    k_spin_unlock(&app_lock, key);
+    atomic_clear(&checking_network);
+    upload_app_publish_network(&result);
+}
+#endif
+
 bool https_poc_active(void) { return atomic_get(&active); }
 bool https_poc_record_pending(void) { return atomic_get(&record_pending); }
 int https_poc_record_error(void) { return atomic_get(&record_error); }
@@ -177,14 +236,16 @@ bool https_poc_command_allowed(const char *name)
     }
 #endif
     /* Read-only instrumentation must remain available during TLS/upload. */
+#ifdef CONFIG_CLIP_RESOURCE_STATS
     if (!strcmp(name, "RES")) { return true; }
+#endif
 #ifdef CONFIG_CLIP_TCP_TRACE
     if (!strcmp(name, "TCPTRACE")) { return true; }
 #endif
 #ifdef CONFIG_CLIP_HTTPS_PROFILE
     if (!strcmp(name, "UPLOADPERF")) { return true; }
 #endif
-#ifdef CONFIG_CLIP_DTLS_UPLOAD
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
     if (!strcmp(name, "UPLOADNET")) { return true; }
 #endif
     if (IS_ENABLED(CONFIG_CLIP_WIFI_DIAG) &&
@@ -195,6 +256,9 @@ bool https_poc_command_allowed(const char *name)
      * commands which could outlive the AT handler and race a subsequent job. */
     if (https_poc_active() || https_poc_record_pending()) {
         return !strcmp(name, "UPLOAD") || !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "UPLOADAUTO") ||
+#ifdef CONFIG_CLIP_UPLOAD_APP
+               !strcmp(name, "NETCHECK") || !strcmp(name, "NETCFG") ||
+#endif
                !strcmp(name, "START") || !strcmp(name, "STOP") ||
                !strcmp(name, "GSTAT") || !strcmp(name, "BATT") || !strcmp(name, "VERSION");
     }
@@ -202,14 +266,19 @@ bool https_poc_command_allowed(const char *name)
     if (!strcmp(name, "LOG")) { return true; }
 #endif
     return !strcmp(name, "NETCFG") || !strcmp(name, "UPLOADCFG") ||
-           !strcmp(name, "UPTIME") || !strcmp(name, "UPLOAD") ||
+#ifdef CONFIG_CLIP_UPLOAD_APP
+           !strcmp(name, "NETCHECK") ||
+#endif
+           !strcmp(name, "UPLOAD") ||
            !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "USB") ||
            !strcmp(name, "GSTAT") || !strcmp(name, "BATT") ||
            !strcmp(name, "VERSION") || !strcmp(name, "LIST") ||
            !strcmp(name, "START") || !strcmp(name, "STOP") ||
            !strcmp(name, "UPLOADSTATE") || !strcmp(name, "UPLOADLIST") ||
-           !strcmp(name, "UPLOADAUTO") || !strcmp(name, "UPLOADSAVE") ||
+           !strcmp(name, "UPLOADAUTO") ||
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
            !strcmp(name, "UPLOADCLEAR") || !strcmp(name, "UPLOADCLOCK") ||
+#endif
            !strcmp(name, "TIME") || !strcmp(name, "STORAGE");
 }
 
@@ -232,6 +301,12 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
             atomic_clear(&state_error);
             atomic_clear(&cleanup_error);
             atomic_set(&stage, PREPARING);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            k_spinlock_key_t key = k_spin_lock(&app_lock);
+            app_job++; app_segment = 0; app_session[0] = 0;
+            atomic_clear(&app_job_network);
+            k_spin_unlock(&app_lock, key);
+#endif
         }
     } else if (event == CLIP_EVENT_UPLOAD_END) {
         atomic_clear(&active);
@@ -904,8 +979,10 @@ static int send_datagram_file(const struct upload_file_record *stamp)
     struct dtls_upload_stats statistics;
     int ret = dtls_upload_file(datagram, &identity, datagram_read, datagram_progress, &statistics);
     k_free(datagram_cache); datagram_cache = NULL;
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     k_mutex_lock(&control_lock, K_FOREVER); last_datagram = statistics;
     k_mutex_unlock(&control_lock);
+#endif
     return ret;
 }
 #endif
@@ -914,6 +991,11 @@ static int send_datagram_file(const struct upload_file_record *stamp)
 static int upload_file(struct https_stream **stream)
 {
     upload_perf_begin(UP_PREPARE, session, segment, 0, 0);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spinlock_key_t app_key = k_spin_lock(&app_lock);
+    memcpy(app_session, session, sizeof(app_session)-1); app_session[14] = 0;
+    app_segment = segment;
+#endif
 #ifdef CONFIG_CLIP_DTLS_UPLOAD
     atomic_set(&tls_step, datagram ? TLS_SETUP_HTTP : TLS_SETUP_IDLE);
     atomic_clear(&datagram_received);
@@ -923,6 +1005,9 @@ static int upload_file(struct https_stream **stream)
     atomic_set(&stage, PREPARING);
     atomic_clear(&bytes_sent); atomic_clear(&confirmed); atomic_clear(&resume_from);
     atomic_clear(&total_bytes); atomic_clear(&state_error);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spin_unlock(&app_lock, app_key);
+#endif
     deadline = k_uptime_get() + 300000;
     int ret = check_cancel();
     char path[STORAGE_PATH_MAX];
@@ -1084,6 +1169,11 @@ static int upload_file(struct https_stream **stream)
     }
 #endif
     upload_perf_end(ret);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    /* Snapshot completion before the next file resets counters and identity. */
+    atomic_set(&last_error, ret);
+    upload_app_publish(ret == -ECANCELED ? "file_cancelled" : ret ? "file_failed" : "file_complete");
+#endif
     return ret;
 }
 
@@ -1093,12 +1183,23 @@ static void worker(void *a, void *b, void *c)
     for (;;) {
         if (k_sem_take(&start_job, K_SECONDS(1)) && !begin_auto()) { continue; }
         struct https_stream *stream = NULL;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        bool network_check = atomic_get(&checking_network);
+#endif
 #ifdef CONFIG_CLIP_DTLS_UPLOAD
         clip_cpu_boost_acquire();
 #endif
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        buffers = network_check ? NULL : k_malloc(sizeof(*buffers));
+        int ret = network_check ? wifi_station_connect(ssid, password, &cancelled) : buffers ? 0 : -ENOMEM;
+        struct wifi_station_network checked_network = {0};
+        if (network_check && !ret) { wifi_station_get_network(&checked_network); }
+        if (!ret && !network_check) {
+#else
         buffers = k_malloc(sizeof(*buffers));
         int ret = buffers ? 0 : -ENOMEM;
         if (!ret) {
+#endif
             for (;;) {
                 ret = upload_file(&stream);
                 if (ret || !atomic_get(&auto_job) || check_cancel()) { break; }
@@ -1134,10 +1235,23 @@ static void worker(void *a, void *b, void *c)
         atomic_set(&last_error, ret);
         atomic_set(&stage, ret == -ECANCELED ? CANCELLED : ret ? FAILED : SUCCEEDED);
         schedule_after_job(ret);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (network_check) {
+            k_mutex_lock(&control_lock, K_FOREVER);
+            next_auto = k_uptime_get()+5000;
+            k_mutex_unlock(&control_lock);
+        }
+        struct upload_app_status job_result;
+        if (!network_check) { https_poc_app_status(&job_result); job_result.active = false; }
+#endif
         struct clip_event_result_info result;
         while (clip_post_event_sync(CLIP_EVENT_UPLOAD_END, &result)) {
             k_sleep(K_MSEC(10));
         }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (network_check) { app_network_done(ret, &checked_network, radio); }
+        else { upload_app_publish_result(ret == -ECANCELED ? "job_cancelled" : ret ? "job_failed" : "job_complete", &job_result); }
+#endif
     }
 }
 /* Full ECDSA handshakes measured 5816 B; 6 KiB left only 328 B. */
@@ -1198,9 +1312,30 @@ static int configure_network(char *args)
     if (!strlen(args) || strlen(args) > 32 || strlen(split) < 8 || strlen(split) > 63) {
         return -EINVAL;
     }
-    strcpy(ssid, args);
-    strcpy(password, split);
-    return 0;
+    if (strchr(args, '\r') || strchr(args, '\n') || strchr(split, '\r') || strchr(split, '\n')) {
+        return -EINVAL;
+    }
+    if (config_saved && !strcmp(ssid, args) && !strcmp(password, split)) { config_error = 0; return 0; }
+    int ret = upload_config_save_network(&settings, args, split);
+    config_error = ret;
+    if (!ret) {
+        config_saved = true;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        app_reset_network("idle");
+#endif
+    }
+    return ret;
+}
+
+static int network_status(char *response, size_t length)
+{
+    char encoded[65];
+    size_t size = strlen(ssid);
+    for (size_t i = 0; i < size; i++) { snprintf(encoded + 2*i, 3, "%02x", (unsigned char)ssid[i]); }
+    encoded[2*size] = 0;
+    return snprintf(response, length,
+        "{\"ok\":true,\"error\":0,\"data\":{\"configured\":%s,\"ssid_hex\":\"%s\",\"saved\":%s,\"config_error\":%d}}\n",
+        size ? "true" : "false", encoded, config_saved ? "true" : "false", config_error);
 }
 
 static int configure_receiver(char *args)
@@ -1218,25 +1353,28 @@ static int configure_receiver(char *args)
     if (!fields[1][0] || *end || n < 1 || n > 65535 || strlen(fields[1]) > 5) {
         return -EINVAL;
     }
-    strcpy(host, fields[0]);
-    strcpy(port, fields[1]);
-    strcpy(device_id, fields[2]);
-    strcpy(token, fields[3]);
-    return 0;
+    int ret = upload_config_save_receiver(&settings, fields[0], fields[1], fields[2], fields[3]);
+    config_error = ret;
+    if (!ret) { config_saved = true; }
+    return ret;
 }
 
-static int set_upload_time(const char *args)
+int https_poc_set_time(int64_t timestamp)
 {
-    char *end;
-    long long timestamp = strtoll(args, &end, 10);
-    if (*end || timestamp < 1700000000LL || timestamp > 4102444800LL) { return -EINVAL; }
+    if (timestamp < 1700000000LL || timestamp > 4102444800LL) { return -EINVAL; }
+    k_mutex_lock(&control_lock, K_FOREVER);
+    if (https_poc_active() || https_poc_record_pending()) {
+        k_mutex_unlock(&control_lock); return -EBUSY;
+    }
     struct timespec ts = {.tv_sec = timestamp, .tv_nsec = 0};
     int ret = clock_settime(CLOCK_REALTIME, &ts) ? -errno : 0;
     atomic_set(&time_ready, ret == 0);
     if (!ret) { time_synced_at = k_uptime_get(); }
+    k_mutex_unlock(&control_lock);
     return ret;
 }
 
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
 static int start_upload(char *args)
 {
     char *split = strchr(args, ':');
@@ -1256,12 +1394,73 @@ static int start_upload(char *args)
     k_sem_give(&start_job);
     return 0;
 }
+#endif
+
+#ifdef CONFIG_CLIP_UPLOAD_APP
+static int network_check_command(struct at_cmd_ctx *ctx, char *response, size_t length)
+{
+    if (ctx->type == AT_CMD_TYPE_READ || ctx->type == AT_CMD_TYPE_TEST) {
+        struct upload_app_network result;
+        https_poc_app_network(&result);
+        return upload_app_format_network(&result, false, 0, 0, response, length);
+    }
+    if (ctx->type == AT_CMD_TYPE_SET) {
+        if (!ctx->args || strcmp(ctx->args, "cancel")) { return -EINVAL; }
+        if (atomic_get(&checking_network) && https_poc_active()) { request_cancel(); }
+        return 0;
+    }
+    if (https_poc_active() || https_poc_record_pending() || atomic_get(&checking_network) || clip_event_get_state()!=CLIP_STATE_IDLE) { return -EBUSY; }
+    if (!ssid[0] || strlen(password)<8) { return -EINVAL; }
+    struct clip_event_result_info result;
+    int ret = clip_post_event_sync(CLIP_EVENT_UPLOAD_BEGIN, &result);
+    if (ret || result.result != CLIP_EVENT_OK) { return -EBUSY; }
+    atomic_clear(&auto_job);
+    atomic_set(&checking_network, 1);
+    atomic_set(&app_job_network, 1);
+    atomic_set(&stage, CONNECTING);
+    app_reset_network("checking");
+    deadline = k_uptime_get()+60000;
+    wifi_diag_reset();
+    k_sem_give(&start_job);
+    return snprintf(response, length, "{\"ok\":true,\"data\":{\"accepted\":true,\"job\":%u,\"state\":\"checking\",\"scope\":\"wifi_dhcp\"}}\n", app_job);
+}
+#endif
 
 static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
 {
     int ret = 0;
     char args[256] = {0};
-    if (ctx->transport_type != TRANSPORT_TYPE_USB) { ret = -EACCES; goto reply; }
+    /* BLE command writes require encryption in ble.c. App controls are
+     * explicitly allowed; developer diagnostics remain USB-only. */
+    bool phone_network = ctx->transport_type == TRANSPORT_TYPE_BLE && !strcmp(ctx->name, "NETCFG");
+    bool phone_control = phone_network;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    phone_control |= ctx->transport_type == TRANSPORT_TYPE_BLE &&
+        (!strcmp(ctx->name, "NETCHECK") || !strcmp(ctx->name, "UPLOADAUTO") ||
+         !strcmp(ctx->name, "UPLOADCANCEL") || !strcmp(ctx->name, "UPLOADCFG") ||
+         !strcmp(ctx->name, "UPLOADSTATE") || !strcmp(ctx->name, "UPLOADLIST") ||
+         (!strcmp(ctx->name, "UPLOAD") && ctx->type != AT_CMD_TYPE_SET));
+#endif
+    if (ctx->transport_type != TRANSPORT_TYPE_USB && !phone_control) { ret = -EACCES; goto reply; }
+    if (!strcmp(ctx->name, "NETCFG") && ctx->type != AT_CMD_TYPE_SET) {
+        return network_status(response, length);
+    }
+    if (!strcmp(ctx->name, "UPLOADCFG") && ctx->type != AT_CMD_TYPE_SET) {
+        return snprintf(response, length, "{\"ok\":true,\"data\":{\"configured\":%s,\"saved\":%s}}\n",
+            host[0] && token[0] ? "true":"false", config_saved ? "true":"false");
+    }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    if (!strcmp(ctx->name, "NETCHECK")) {
+        ret = network_check_command(ctx, response, length);
+        if (ret > 0) { return ret; }
+        goto reply;
+    }
+    if (ctx->transport_type == TRANSPORT_TYPE_BLE && !strcmp(ctx->name, "UPLOAD")) {
+        struct upload_app_status status;
+        https_poc_app_status(&status);
+        return upload_app_format_status(&status, NULL, 0, 0, response, length);
+    }
+#endif
 #ifdef CONFIG_CLIP_TCP_TRACE
     if (!strcmp(ctx->name, "TCPTRACE")) {
         ret = clip_tcp_trace_command(ctx->args, https_poc_active() || https_poc_record_pending(), response, length);
@@ -1276,7 +1475,7 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
         goto reply;
     }
 #endif
-#ifdef CONFIG_CLIP_DTLS_UPLOAD
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
     if (!strcmp(ctx->name, "UPLOADNET")) {
 #ifdef CONFIG_CLIP_DTLS_PROFILE
         if (ctx->type == AT_CMD_TYPE_SET) {
@@ -1319,49 +1518,59 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
     if (!strcmp(ctx->name, "UPLOADAUTO") && ctx->type != AT_CMD_TYPE_SET) {
         return snprintf(response, length,
             "{\"ok\":true,\"data\":{\"enabled\":%s,\"paused\":%s,\"config_saved\":%s,"
-            "\"config_error\":%d,\"scan_error\":%d,\"time_ready\":%s,\"auto_active\":%s,"
+            "\"upload_ready\":%s,\"config_error\":%d,\"scan_error\":%d,\"time_ready\":%s,\"auto_active\":%s,"
             "\"failures\":%u,\"next_attempt_ms\":%u}}\n",
             settings.enabled ? "true" : "false", atomic_get(&auto_paused) ? "true" : "false",
-            config_saved ? "true" : "false", config_error, scan_error,
+            config_saved ? "true" : "false", upload_config_valid(&settings) ? "true" : "false", config_error, scan_error,
             atomic_get(&time_ready) ? "true" : "false", atomic_get(&auto_job) ? "true" : "false",
             (unsigned int)failures, (unsigned int)MAX(0, next_auto - k_uptime_get()));
     }
     if (!strcmp(ctx->name, "UPLOADAUTO") && ctx->args && !strcmp(ctx->args, "off")) {
-        settings.enabled = 0; atomic_set(&auto_paused, 1);
-        if (atomic_get(&auto_job)) { request_cancel(); }
-        ret = upload_config_save(&settings); config_error = ret; config_saved = ret == 0;
+        ret = config_saved && !settings.enabled ? 0 : upload_config_save_enabled(&settings, 0);
+        config_error = ret;
+        if (!ret) {
+            config_saved = true; atomic_set(&auto_paused, 1);
+            if (atomic_get(&auto_job)) { request_cancel(); }
+        }
         goto reply;
     }
     if (!strcmp(ctx->name, "UPLOADCANCEL")) {
         atomic_set(&auto_paused, 1); request_cancel(); goto reply;
     }
-    if (https_poc_active() || https_poc_record_pending()) { ret = -EBUSY; goto reply; }
-    if (!strcmp(ctx->name, "UPLOADSAVE")) {
-        ret = upload_config_save(&settings); config_error = ret; config_saved = ret == 0; goto reply;
-    }
+    if (https_poc_active() || https_poc_record_pending()
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        || atomic_get(&checking_network)
+#endif
+    ) { ret = -EBUSY; goto reply; }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     if (!strcmp(ctx->name, "UPLOADCLEAR")) {
-        atomic_set(&auto_paused, 1); settings.enabled = 0;
-        ret = upload_config_clear(); config_error = ret; config_saved = false;
+        ret = upload_config_clear(); config_error = ret;
         if (!ret) {
+            atomic_set(&auto_paused, 1); config_saved = false;
             memset(&settings, 0, sizeof(settings));
             strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
             cursor_session[0] = 0; cursor_segment = 0; atomic_clear(&time_ready);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            app_reset_network("idle");
+#endif
         }
         goto reply;
     }
+#endif
     if (!ctx->args) { ret = -EINVAL; goto reply; }
     if (strlen(ctx->args) >= sizeof(args)) { ret = -EINVAL; goto reply; }
     strcpy(args, ctx->args);
-    if ((!strcmp(ctx->name, "NETCFG") || !strcmp(ctx->name, "UPLOADCFG") ||
-         !strcmp(ctx->name, "UPLOADCLOCK")) && settings.enabled) { ret = -EBUSY; goto reply; }
+    if ((!strcmp(ctx->name, "UPLOADCFG") || !strcmp(ctx->name, "UPLOADCLOCK")) &&
+        strcmp(args, "clear") && settings.enabled) { ret = -EBUSY; goto reply; }
     if (!strcmp(ctx->name, "UPLOADAUTO")) {
         if (strcmp(args, "on")) { ret = -EINVAL; goto reply; }
-        settings.enabled = 1; ret = upload_config_save(&settings); config_error = ret;
-        if (ret) { settings.enabled = 0; config_saved = false; }
-        else {
+        ret = config_saved && settings.enabled ? 0 : upload_config_save_enabled(&settings, 1);
+        config_error = ret;
+        if (!ret) {
             config_saved = true; atomic_clear(&auto_paused); failures = 0;
             next_auto = k_uptime_get() + 5000; cursor_session[0] = 0; cursor_segment = 0;
         }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     } else if (!strcmp(ctx->name, "UPLOADCLOCK")) {
         char *split = strchr(args, ',');
         if (!split) { ret = -EINVAL; goto reply; }
@@ -1371,20 +1580,31 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
             ret = -EINVAL; goto reply;
         }
         strcpy(candidate.clock_host, args); strcpy(candidate.clock_port, split);
-        if (!upload_config_valid(&candidate)) { ret = -EINVAL; }
-        else {
-            strcpy(settings.clock_host, args); strcpy(settings.clock_port, split);
-            config_saved = false; atomic_clear(&time_ready);
-        }
+        ret = upload_config_save(&candidate); config_error = ret;
+        if (!ret) { settings = candidate; config_saved = true; atomic_clear(&time_ready); }
         memset(&candidate, 0, sizeof(candidate));
+#endif
     } else if (!strcmp(ctx->name, "NETCFG")) {
-        ret = configure_network(args); if (!ret) { config_saved = false; }
+        if (clip_event_get_state() != CLIP_STATE_IDLE) { ret = -EBUSY; }
+        else if (!strcmp(args, "clear")) {
+            ret = upload_config_forget(&settings, UPLOAD_FORGET_WIFI); config_error = ret;
+            if (!ret) {
+                config_saved = true; atomic_set(&auto_paused, 1);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+                app_reset_network("idle");
+#endif
+            }
+        } else { ret = configure_network(args); }
+        if (!ret) { memset(args, 0, sizeof(args)); return network_status(response, length); }
     } else if (!strcmp(ctx->name, "UPLOADCFG")) {
-        ret = configure_receiver(args); if (!ret) { config_saved = false; }
-    } else if (!strcmp(ctx->name, "UPTIME")) {
-        ret = set_upload_time(args);
+        if (!strcmp(args, "clear")) {
+            ret = upload_config_forget(&settings, UPLOAD_FORGET_RECEIVER); config_error = ret;
+            if (!ret) { config_saved = true; atomic_set(&auto_paused, 1); }
+        } else { ret = configure_receiver(args); }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     } else if (!strcmp(ctx->name, "UPLOAD")) {
         ret = start_upload(args);
+#endif
     } else if (!strcmp(ctx->name, "UPLOADLIST")) {
         ret = list_states(args, response, length);
         if (ret >= 0) { memset(args, 0, sizeof(args)); return ret; }
@@ -1419,6 +1639,9 @@ static int command(struct at_cmd_ctx *ctx, char *response, size_t length)
 {
     k_mutex_lock(&control_lock, K_FOREVER);
     int ret = command_locked(ctx, response, length);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    atomic_set(&app_enabled, settings.enabled);
+#endif
     k_mutex_unlock(&control_lock);
     return ret;
 }
@@ -1429,14 +1652,23 @@ int https_poc_register(void)
     if (!configuration) { return -ENOMEM; }
     int ret;
     static const struct at_command commands[] = {
-        {"NETCFG", AT_CMD_SET, command}, {"UPLOADCFG", AT_CMD_SET, command},
-        {"UPTIME", AT_CMD_SET, command}, {"UPLOAD", AT_CMD_SET | AT_CMD_QUERY, command},
+        {"NETCFG", AT_CMD_SET | AT_CMD_QUERY, command}, {"UPLOADCFG", AT_CMD_SET | AT_CMD_QUERY, command},
+        {"UPLOAD", AT_CMD_QUERY
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+            | AT_CMD_SET
+#endif
+            , command},
         {"UPLOADCANCEL", AT_CMD_EXEC, command},
         {"UPLOADSTATE", AT_CMD_SET, command}, {"UPLOADLIST", AT_CMD_SET, command},
         {"UPLOADAUTO", AT_CMD_SET | AT_CMD_QUERY, command},
-        {"UPLOADSAVE", AT_CMD_EXEC, command}, {"UPLOADCLEAR", AT_CMD_EXEC, command},
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+        {"UPLOADCLEAR", AT_CMD_EXEC, command},
         {"UPLOADCLOCK", AT_CMD_SET, command},
-#ifdef CONFIG_CLIP_DTLS_UPLOAD
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        {"NETCHECK", AT_CMD_EXEC | AT_CMD_SET | AT_CMD_QUERY, command},
+#endif
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
         {"UPLOADNET", AT_CMD_QUERY
 #ifdef CONFIG_CLIP_DTLS_PROFILE
             | AT_CMD_SET
@@ -1455,7 +1687,10 @@ int https_poc_register(void)
         if (ret) { return ret; }
     }
     ret = upload_config_init(&settings);
-    config_error = ret; config_saved = !ret && ssid[0];
+    config_error = ret; config_saved = !ret && settings.version == 1;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    atomic_set(&app_enabled, settings.enabled);
+#endif
     if (!settings.clock_host[0]) {
         strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
     }

@@ -38,7 +38,7 @@ def configure_upload(query, config):
     """Configure the upload through the caller's normal command/logging path."""
     query(f"AT+NETCFG={config['ssid']},{config['password']}")
     query(f"AT+UPLOADCFG={config['host']},{config['port']},{config['device']},{config['token']}")
-    query(f"AT+UPTIME={int(time.time())}")
+    query(f"AT+TIME={int(time.time())}")
 
 
 def exchange(fd, command):

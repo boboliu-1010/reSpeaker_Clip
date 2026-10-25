@@ -42,13 +42,22 @@ cancellation closes the session; a later attempt asks the server for its offset.
 
 ## Build and operate
 
-Use `--preset dtls-single` for the maintained configuration:80KiB application
+Use `--preset dtls-single --production` for the maintained configuration:80KiB application
 heap, direct DTLS over UDP, hardware GCM,128-packet window and8KiB synchronous
 read-ahead. Files upload serially over one reused DTLS connection. The active
 source no longer contains the dual-channel, file-multiplexing or asynchronous
 SD producer experiments; their source and results remain in local archives.
 Recording hash caches, final server SHA256 verification, cancellation/resume,
 automatic queueing and completed DATA timing snapshots remain supported.
+
+An App may provision and persist the Station Wi-Fi over the encrypted BLE
+command characteristic with `AT+NETCFG=ssid,password`. A successful BLE reply
+contains `data.saved:true`; boot restores the same record automatically. The
+receiver enrollment is also available over encrypted BLE with `CLIP_UPLOAD_APP`. BLE `NETCHECK` validates association/DHCP;
+`UPLOADAUTO` persists the automatic-upload switch and `UPLOAD?` queries progress.
+The existing response characteristic publishes throttled status and terminal
+events without sending BLE messages from the DATA loop. See the
+[BLE provisioning contract](protocol.md#station-wi-fi-provisioning-in-the-upload-build).
 
 The helper selects `applications/clip/dtls.conf` when the ordered overlays
 enable `CLIP_DTLS_UPLOAD`. DTLS uses direct mbedTLS over UDP: TCP and Zephyr's
@@ -58,17 +67,25 @@ Wi-Fi crypto and time synchronization remain enabled. HTTPS-only builds keep
 budget overlay. Transport cleanup leaves TLS buffers unchanged; `dtls-single`
 explicitly reserves an80KiB heap.
 
-For the maintained configuration, run the helper with `--preset dtls-single`:
+For the maintained configuration, run the helper with `--preset dtls-single --production`:
 
 ```sh
 python tools/https_poc/build.py \
   --ncs /path/to/ncs --sdk /path/to/zephyr-sdk \
   --build /path/to/ncs/build-clip-dtls-candidate \
-  --ca /path/to/public-test-ca.pem --preset dtls-single
+  --ca /path/to/public-test-ca.pem --preset dtls-single --production
 ```
 
-This opt-in preset keeps the full recording application, runtime/network
-diagnostics and timing counters. It enables CryptoCell AEAD, initial/maximum
+There are only two build modes, matching the baseline. Without `--production`,
+the helper uses the default build with UART logging, developer interfaces and
+preset diagnostics. With `--production`, it uses the existing `production`
+snippet, closes UART logging and defaults developer interfaces off; preset
+diagnostics are omitted. `dtls-single` selects the upload feature set, not a
+third build mode; `dtls-optimized` remains its compatibility alias. Direct west
+builds also derive the developer-interface default from `LOG_BACKEND_UART`,
+just as the baseline does for the SD-log default. No app-only Kconfig symbols
+are added to the shared production snippet. Functional ARP fixes remain enabled
+independently of diagnostics. Both modes retain the full recording application. It enables CryptoCell AEAD, initial/maximum
 windows128/128, and8192-byte DATA read-ahead on every boot. Hashing retains its
 4KiB buffer; DATA allocates an additional8KiB per file and frees it on all
 transfer exits. The window/cache defaults also work with timing disabled.
@@ -76,6 +93,13 @@ The SDK groups CCM and GCM under its AEAD switch; other PSA driver categories
 remain software-backed. This is a candidate for reliability validation, not
 a release approval. Use `dtls-profile.conf` only with the pinned SDK: its build-local
 TLS timing copy fails closed on source hash changes and never edits the SDK.
+
+Switching between the baseline default and production modes changes
+`BT_KEYS_OVERWRITE_OLDEST`. The pinned SDK includes that option in its stored
+bond configuration flags and rejects records from the other configuration.
+Re-pair the phone/Mac after switching modes; remove a stale host-side bond if
+the host reports that the peer removed pairing information. This differs from
+rebooting within the same mode, where the saved bond should be restored.
 
 For the original baseline, use the helper without a preset, adding
 `applications/clip/dtls-upload.conf` to the established runtime/network overlays.
@@ -93,8 +117,8 @@ before loading durable progress; use the matching receiver code for persistent
 service validation.
 Opening TCP 9527 alone is insufficient; the service needs UDP 9527.
 
-Existing USB commands configure Wi-Fi, receiver credentials, clock and automatic
-upload. `AT+UPLOADNET?` adds read-only statistics for the last DTLS file:
+Encrypted BLE and USB configure Wi-Fi, receiver credentials, `AT+TIME` and automatic
+upload. With developer interfaces enabled, USB `AT+UPLOADNET?` adds read-only statistics for the last DTLS file:
 elapsed time, packets, retransmissions, receipts, received/durable progress,
 resume offset, RTT, RTO and final window. `AT+UPLOAD?` reports protocol 3.
 Both time validity and CA/host verification remain mandatory.
@@ -140,7 +164,8 @@ the additional cache. These samples do not establish long-run or weak-network
 reliability. Raw records, ELF/map files and rollback images stay in the local
 firmware version directories, not in Git.
 
-When `CONFIG_CLIP_DTLS_PROFILE=y`, USB configuration controls are RAM-only and
+When `CONFIG_CLIP_DEBUG_INTERFACES=y` and `CONFIG_CLIP_DTLS_PROFILE=y`,
+the following USB performance controls are RAM-only and
 reject SET while an upload or recording handoff is pending. The read-only
 `timing` snapshot remains available during the next file's upload:
 

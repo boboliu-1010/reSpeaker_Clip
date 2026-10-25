@@ -13,6 +13,9 @@
 #include "transport.h"
 #include "transport_udp.h"
 #include "usb_cdc.h"
+#ifdef CONFIG_CLIP_UPLOAD_APP
+#include "upload_app.h"
+#endif
 
 LOG_MODULE_REGISTER(at_server, CONFIG_CLIP_LOG_LEVEL);
 
@@ -37,9 +40,9 @@ static struct {
 
 /* Command registry */
 static struct {
-#ifdef CONFIG_CLIP_HTTPS_POC
-    /* HTTPS controls + diagnostics + stock commands exceed the original 40. */
-    const struct at_command *cmds[48];
+#if defined(CONFIG_CLIP_HTTPS_POC) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
+    /* Include App controls and all optional diagnostics, with small headroom. */
+    const struct at_command *cmds[52];
 #else
     const struct at_command *cmds[40];
 #endif
@@ -320,8 +323,13 @@ static void at_server_thread_func(void *p1, void *p2, void *p3)
     struct at_queue_item item;
     while (at_ctx.running) {
         /* Wait for command (message is copied into item) */
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (!k_msgq_get(&at_ctx.msgq, &item, K_MSEC(250))) { process_command(&item); }
+        upload_app_poll();
+#else
         k_msgq_get(&at_ctx.msgq, &item, K_FOREVER);
         process_command(&item);
+#endif
     }
 
     LOG_INF("AT Server thread stopped");

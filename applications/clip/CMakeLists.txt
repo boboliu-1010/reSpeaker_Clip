@@ -5,7 +5,8 @@ cmake_minimum_required(VERSION 3.20)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(clip)
 
-if(CONFIG_CLIP_NETWORK_BACKPORT_DHCP)
+if(CONFIG_CLIP_NETWORK_BACKPORT_DHCP OR
+   (CONFIG_CLIP_NETWORK_BACKPORT_ARP AND NOT CONFIG_CLIP_WIFI_DIAG))
     include(network-backports.cmake)
 endif()
 
@@ -100,6 +101,7 @@ if(CONFIG_CLIP_HTTPS_POC)
     target_sources(app PRIVATE src/wifi_station.c src/https_poc.c src/upload_state.c src/upload_config.c src/upload_scan.c)
     target_sources_ifdef(CONFIG_CLIP_RECORDING_HASH app PRIVATE src/recording_hash.c)
     target_sources_ifdef(CONFIG_CLIP_HTTPS_PROFILE app PRIVATE src/upload_perf.c)
+    target_sources_ifdef(CONFIG_CLIP_UPLOAD_APP app PRIVATE src/upload_app.c)
     if(CONFIG_CLIP_DTLS_UPLOAD)
         target_sources(app PRIVATE src/dtls_upload.c src/upload_window.c)
     else()

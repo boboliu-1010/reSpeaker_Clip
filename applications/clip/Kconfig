@@ -13,6 +13,16 @@ menuconfig CLIP
 
 if CLIP
 
+config CLIP_DEBUG_INTERFACES
+	bool "Developer diagnostics and experimental AT interfaces"
+	default y if LOG_BACKEND_UART
+	default n
+	help
+	  Application-only master gate for resource, network and performance
+	  diagnostics. Follow the baseline default/production split: the production
+	  snippet disables UART logging, so this defaults off there. Does not change the
+	  optimized DATA window, read cache, CPU boost or hardware encryption.
+
 config CLIP_DTLS_UPLOAD
 	bool "Durable recording upload over DTLS"
 	depends on CLIP_HTTPS_POC
@@ -67,15 +77,23 @@ config CLIP_DTLS_READ_CACHE_BYTES
 	  buffer is retained. This setting also applies when timing is disabled.
 
 config CLIP_HTTPS_POC
-	bool "Experimental USB-controlled HTTPS upload"
+	bool "Experimental recording upload"
 	default n
 	help
-	  Station-only, stopped-recording upload. Uses CDC-only USB and disables
-	  application OTA during this experiment. Requires a supplied test CA.
+	  Station-only, stopped-recording upload. Uses CDC-only USB, optional BLE
+	  App controls, and disables application OTA. Requires a supplied test CA.
+
+config CLIP_UPLOAD_APP
+	bool "BLE provisioning validation, upload controls and notifications"
+	depends on CLIP_HTTPS_POC && BT
+	default y
+	help
+	  Reuse the uploader for asynchronous Wi-Fi validation. Publish bounded,
+	  throttled events from the existing AT thread, never the DATA loop.
 
 config CLIP_HTTPS_PROFILE
 	bool "Passive upload phase timing via USB"
-	depends on CLIP_HTTPS_POC
+	depends on CLIP_HTTPS_POC && CLIP_DEBUG_INTERFACES
 	default n
 	help
 	  Opt-in bounded RAM event ring; no audio or credential logging.
@@ -121,11 +139,11 @@ config CLIP_DHCP_REBOOT_ATTEMPTS
 
 config CLIP_NETWORK_BACKPORT_ARP
 	bool "Experimental pinned-SDK ARP pending-entry fixes"
-	depends on CLIP_HTTPS_POC && CLIP_WIFI_DIAG
+	depends on CLIP_HTTPS_POC
 	default n
 	help
-	  Generate fixed ARP source together with the existing passive diagnostics.
-	  Keep this separate from the DHCP experiment for a controlled comparison.
+	  Apply the pinned ARP fixes independently of optional diagnostics. Debug
+	  builds may additionally instrument the fixed source; release does not.
 
 module = CLIP
 module-str = Clip Application
@@ -551,6 +569,7 @@ config CLIP_BATTERY_DISPLAY_MAX_STEP
 config CLIP_RESOURCE_STATS
 	bool "Enable on-demand AT resource measurements"
 	default n
+	depends on CLIP_DEBUG_INTERFACES
 	depends on THREAD_MONITOR && THREAD_NAME && INIT_STACKS
 	depends on SYS_HEAP_RUNTIME_STATS && THREAD_RUNTIME_STATS
 	help
@@ -559,6 +578,7 @@ config CLIP_RESOURCE_STATS
 
 config CLIP_DEBUG_STATS
 	bool "Enable periodic thread stack and heap usage logging"
+	depends on CLIP_DEBUG_INTERFACES
 	default n
 	help
 	  Print thread stack usage and heap stats every 10 seconds.
@@ -572,7 +592,7 @@ config CLIP_WIFI_AUTH_LOG
 
 config CLIP_WIFI_DIAG
 	bool "Passive HTTPS station network diagnostics"
-	depends on CLIP_HTTPS_POC && NET_STATISTICS_USER_API
+	depends on CLIP_DEBUG_INTERFACES && CLIP_HTTPS_POC && NET_STATISTICS_USER_API
 	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4
 	depends on !NET_TCP || NET_STATISTICS_TCP
 	default n

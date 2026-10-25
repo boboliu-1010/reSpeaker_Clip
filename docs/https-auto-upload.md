@@ -5,25 +5,27 @@
 
 ## 配置与启用
 
-以下控制只接受 USB。默认关闭自动上传；修改网络或接收端前先关闭自动上传，等待
+启用 `CLIP_UPLOAD_APP` 后，业务控制支持加密 BLE 和 USB。默认关闭自动上传；修改接收端前先关闭自动上传，等待
 `UPLOAD?` 的 active 为 false。凭据不得放进终端历史、提交记录或公共日志。
 
 | 命令 | 行为 |
 |---|---|
-| `NETCFG=ssid,password` | 在 RAM 中设置单个 WPA2 网络 |
-| `UPLOADCFG=host,port,device,token` | 在 RAM 中设置接收端身份和认证 |
-| `UPLOADCLOCK=host,port` | 设置 SNTP 地址；默认 time.cloudflare.com:123 |
-| `UPLOADSAVE` | 持久保存完整配置，但不自动改变开关 |
+| `NETCFG=ssid,password` | 设置并持久保存单个 WPA2 网络 |
+| `UPLOADCFG=host,port,device,token` | 设置并持久保存接收端身份和认证 |
+| `NETCHECK` / `NETCHECK?` / `NETCHECK=cancel` | 异步验证已配置 Wi-Fi 的关联与 DHCP、查询或取消 |
+| `NETCFG=clear` / `UPLOADCFG=clear` | 分别忘记 Wi-Fi 或接收端，关闭自动上传，保留录音 |
+| `UPLOADCLOCK=host,port` | 仅调试 USB：设置 SNTP 地址；默认 time.cloudflare.com:123 |
 | `UPLOADAUTO=on` | 保存完整配置和开启标志，开始空闲调度 |
 | `UPLOADAUTO=off` | 立即禁止新自动任务、取消当前自动任务，并持久保存关闭标志 |
 | `UPLOADAUTO?` | 返回开关、暂停、持久化错误、扫描错误、校时和退避状态 |
-| `UPLOADCLEAR` | 空闲时清除持久配置及 RAM 凭据，同时关闭自动上传 |
+| `UPLOADCLEAR` | 仅调试 USB：空闲时清除全部上传配置，同时关闭自动上传 |
 | `UPLOADLIST=0` | 从头分页列出片段的上传状态 |
 | `UPLOADLIST=session:segment` | 获取严格晚于该游标的下一页 |
 
-`UPLOADAUTO=on` 本身会保存，不要求先执行 UPLOADSAVE。配置未完整或保存失败时
-不会开启。关闭操作即使保存失败也会在本次启动中停止自动任务，并返回错误；此时
-不能承诺重启后仍关闭，应修复存储并再次保存或清除。
+`UPLOADAUTO=on/off` 都先保存再应用；配置未完整时无法开启，保存失败时保留原开关。
+重复设置已保存的相同值不重写 Flash。`UPLOADSAVE` 已移除。调试命令需要
+`CLIP_DEBUG_INTERFACES=y`；默认构建启用，基线 production 配置默认关闭。
+构建工具使用 `--preset dtls-single`，加 `--production` 选择生产配置。
 
 凭据与开关保存在设备外置 Flash 的 LittleFS settings 中，作为一个版本化、带 CRC
 的 `https/config` 值加载；不保存在可移除的 SD 上，不在查询结果中返回密码或令牌。
@@ -75,7 +77,7 @@
 ## 时间与证书
 
 开机不把上次保存的时间当作当前 TLS 时间。联网后通过配置的 SNTP 端点获取时间，
-每 6 小时重新校时；USB 注入 UPTIME 可用于受控测试。校时成功也更新原录音时钟。
+每 6 小时重新校时；通过原有 AT+TIME 设置时间 可用于受控测试。校时成功也更新原录音时钟。
 SNTP 获取失败则本次上传失败并退避；不关闭证书链、主机名或有效期校验。
 SNTP 本身没有认证，不能等同于可信签名时间服务；设备断网且时钟未更新时，原有
 录音命名时钟仍受既有产品行为约束。

@@ -10,6 +10,7 @@ class ReadCacheTest(unittest.TestCase):
         parser='static int configure_datagram_cache'+source.split('static int configure_datagram_cache',1)[1].split('\n#endif',1)[0]
         prefix=r'''
 #define CONFIG_CLIP_DTLS_PROFILE 1
+#define CONFIG_CLIP_DEBUG_INTERFACES 1
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>

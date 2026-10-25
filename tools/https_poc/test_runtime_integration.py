@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RuntimeIntegrationTest(unittest.TestCase):
-    def test_command_dispatch_preserves_validation_busy_cancel_and_start(self):
+    def command_fixture(self):
         source = (ROOT / "applications/clip/src/https_poc.c").read_text()
         parsing = "static char *split_field" + source.split("static char *split_field", 1)[1].split(
             "static void request_cancel", 1)[0]
@@ -32,7 +32,13 @@ class RuntimeIntegrationTest(unittest.TestCase):
 #include <ctype.h>
 #include <errno.h>
 #define TRANSPORT_TYPE_USB 1
+#define CONFIG_CLIP_DEBUG_INTERFACES 1
+#define TRANSPORT_TYPE_BLE 3
+#define CLIP_STATE_IDLE 0
 #define AT_CMD_TYPE_SET 1
+#define AT_CMD_TYPE_TEST 0
+#define AT_CMD_TYPE_EXEC 2
+#define AT_CMD_TYPE_READ 3
 #define CLOCK_REALTIME 0
 #define CLIP_EVENT_UPLOAD_BEGIN 1
 #define CLIP_EVENT_OK 0
@@ -54,6 +60,9 @@ static struct upload_config settings = {.clock_host="clock", .clock_port="123"};
 static char session[32];
 static int auto_job, auto_paused, config_error, scan_error, control_lock, save_error;
 static bool config_saved;
+static int device_state, save_count;
+static struct upload_config saved_settings;
+static int clip_event_get_state(void) { return device_state; }
 static unsigned int failures, cursor_segment;
 static char cursor_session[15];
 static long long next_auto, time_synced_at;
@@ -64,7 +73,7 @@ static void k_mutex_lock(int *m,int wait) { assert(!*m);*m=1;(void)wait; }
 static void k_mutex_unlock(int *m) { assert(*m);*m=0; }
 static void atomic_set(int *v,int n) { *v=n; }
 static void atomic_clear(int *v) { *v=0; }
-int upload_config_save(struct upload_config *c) { (void)c; return save_error; }
+int upload_config_save(struct upload_config *c) { save_count++; if(!save_error)saved_settings=*c; return save_error; }
 int upload_config_clear(void) { return save_error; }
 int upload_config_valid(const struct upload_config *c) { (void)c;return 1; }
 static int list_states(const char *a,char *o,size_t n) { (void)a;(void)o;(void)n;return -ENOENT; }
@@ -98,7 +107,12 @@ static int clock_settime(int clock, const struct timespec *ts) {
     wall_time = ts->tv_sec; return 0;
 }
 '''
-        code += parsing + handlers
+        # Compile the real transactional persistence helper without the legacy
+        # uploader's field-name macros, as in its own production C module.
+        config_source = (ROOT / "applications/clip/src/upload_config.c").read_text()
+        network_save = 'int upload_config_save_network' + config_source.split('int upload_config_save_network', 1)[1]
+        code += '#undef ssid\n#undef password\n#undef host\n#undef port\n#undef token\n' + network_save
+        code += '\n#define ssid settings.ssid\n#define password settings.password\n#define host settings.host\n#define port settings.port\n#define token settings.token\n' + parsing + handlers
         code += r'''
 static void request(const char *name, const char *args, int transport, int type, int expected) {
     struct at_cmd_ctx ctx = {.name=name, .args=args, .transport_type=transport, .type=type};
@@ -116,6 +130,36 @@ int main(void) {
     request("NETCFG", "test,short", 1, AT_CMD_TYPE_SET, -EINVAL);
     request("NETCFG", "test,test-password", 1, AT_CMD_TYPE_SET, 0);
     assert(!strcmp(ssid, "test") && !strcmp(password, "test-password"));
+    /* BLE is limited to encrypted-GATT network provisioning, not upload admin.
+     * A failed save leaves both the live settings and prior saved flag intact. */
+    struct upload_config prior=settings;
+    save_error=-EIO;
+    request("NETCFG", "phone,test-password", 3, AT_CMD_TYPE_SET, -EIO);
+    assert(!memcmp(&settings,&prior,sizeof(settings))&&config_saved);
+    save_error=0;
+    request("NETCFG", "phone\"net,test-password,comma", 3, AT_CMD_TYPE_SET, 0);
+    assert(config_saved&&!strcmp(ssid,"phone\"net")&&!strcmp(password,"test-password,comma"));
+    assert(!memcmp(&settings,&saved_settings,sizeof(settings)));
+    int count=save_count;
+    request("NETCFG", "phone\"net,test-password,comma", 3, AT_CMD_TYPE_SET, 0);
+    assert(save_count==count); /* Repeated provisioning does not wear flash. */
+    request("NETCFG", NULL, 3, 0, 0);
+    prior=settings;save_error=-EIO;
+    request("NETCFG", "new,test-password", 3, AT_CMD_TYPE_SET, -EIO);
+    assert(config_saved&&!memcmp(&settings,&prior,sizeof(settings)));
+    save_error=0;
+    request("NETCFG", "bad,test\npassword", 3, AT_CMD_TYPE_SET, -EINVAL);
+    request("NETCFG", "bad,short", 3, AT_CMD_TYPE_SET, -EINVAL);
+    device_state=1;
+    request("NETCFG", "busy,test-password", 3, AT_CMD_TYPE_SET, -EBUSY);
+    device_state=0;active=1;
+    request("NETCFG", "busy,test-password", 3, AT_CMD_TYPE_SET, -EBUSY);
+    active=0;
+    request("UPLOADAUTO", "on", 3, AT_CMD_TYPE_SET, -EACCES);
+    request("UPLOADCFG", "receiver,8443,fixture,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 3, AT_CMD_TYPE_SET, -EACCES);
+    request("NETCFG", "bad,test-password", 0, AT_CMD_TYPE_SET, -EACCES);
+    request("NETCFG", "test,test-password", 1, AT_CMD_TYPE_SET, 0);
+    assert(config_saved); /* Both transports now persist each configuration. */
     request("UPLOADCFG", "receiver,8443,fixture", 1, AT_CMD_TYPE_SET, -EINVAL);
     request("UPLOADCFG", "receiver,0,fixture,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, AT_CMD_TYPE_SET, -EINVAL);
     assert(!host[0]);
@@ -123,12 +167,12 @@ int main(void) {
     assert(!strcmp(host, "receiver") && !strcmp(port, "8443"));
     request("UPLOADSTATE", "20261019070446:1", 1, AT_CMD_TYPE_SET, -ENOENT);
     assert(state_queries == 1);
-    request("UPTIME", "invalid", 1, AT_CMD_TYPE_SET, -EINVAL);
+    assert(https_poc_set_time(0)==-EINVAL);
     clock_error = 1;
-    request("UPTIME", "1800000000", 1, AT_CMD_TYPE_SET, -EIO);
+    assert(https_poc_set_time(1800000000)==-EIO);
     assert(!time_ready);
     clock_error = 0;
-    request("UPTIME", "1800000000", 1, AT_CMD_TYPE_SET, 0);
+    assert(https_poc_set_time(1800000000)==0);
     assert(time_ready && wall_time == 1800000000LL);
     request("UPLOAD", "20261019070446:0", 1, AT_CMD_TYPE_SET, -EINVAL);
     request("UPLOAD", "session:1", 1, AT_CMD_TYPE_SET, -EINVAL);
@@ -141,6 +185,7 @@ int main(void) {
     event_result = 0; cancelled = stalled = last_error = bytes_sent = 1;
     request("UPLOAD", "20261019070446:1", 1, AT_CMD_TYPE_SET, 0);
     assert(active && starts == 1 && resets == 1 && stage == PREPARING);
+    assert(https_poc_set_time(1800000100)==-EBUSY&&wall_time==1800000000LL);
     request("UPLOADSTATE", "20261019070446:1", 1, AT_CMD_TYPE_SET, -EBUSY);
     assert(state_queries == 1);
     assert(segment == 1 && !strcmp(session, "20261019070446"));
@@ -153,19 +198,25 @@ int main(void) {
     active = 0;
     request("UPLOADAUTO", "on", 1, AT_CMD_TYPE_SET, 0);
     assert(settings.enabled && config_saved && !auto_paused);
-    request("NETCFG", "other,test-password", 1, AT_CMD_TYPE_SET, -EBUSY);
+    request("NETCFG", "other,test-password", 1, AT_CMD_TYPE_SET, 0);
+    request("NETCFG", "phone,test-password", 3, AT_CMD_TYPE_SET, 0);
+    assert(settings.enabled&&config_saved&&!strcmp(ssid,"phone"));
     auto_job = active = 1;
     request("UPLOADAUTO", "off", 1, AT_CMD_TYPE_SET, 0);
     assert(!settings.enabled && auto_paused && cancelled);
     active = 0; save_error = -EIO;
     request("UPLOADAUTO", "on", 1, AT_CMD_TYPE_SET, -EIO);
-    assert(!settings.enabled && !config_saved);
+    assert(!settings.enabled && config_saved && auto_paused);
     save_error = 0;
     request("UPLOADCLEAR", NULL, 1, 0, 0);
     assert(!ssid[0] && !host[0] && !config_saved);
     return 0;
 }
 '''
+        return code
+
+    def test_command_dispatch_preserves_validation_busy_cancel_and_start(self):
+        code = self.command_fixture()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "test.c").write_text(code)
@@ -173,6 +224,66 @@ int main(void) {
                             "-fsanitize=address,undefined", "-I"+str(ROOT / "applications/clip/include"), str(root / "test.c"),
                             "-o", str(root / "test")], check=True)
             subprocess.run([str(root / "test")], check=True)
+
+    def test_app_ble_controls_validation_and_diagnostic_boundary(self):
+        from test_auto_upload import compile_run
+        source = (ROOT/'applications/clip/src/upload_app.c').read_text()
+        formatting = source[source.index('int upload_app_format_status'):source.index('static void enqueue')]
+        code = self.command_fixture().split('static void request(', 1)[0]
+        at = code.index('static int configure_network')
+        adapter = r'''
+#include "upload_app.h"
+#define CONNECTING PREPARING
+static int checking_network,app_enabled,app_job_network;
+static uint32_t app_job;
+static long long deadline;
+static struct upload_app_network network={.state="idle"};
+static void app_reset_network(const char*s){memset(&network,0,sizeof(network));network.state=s;}
+void https_poc_app_network(struct upload_app_network*out){*out=network;}
+void https_poc_app_status(struct upload_app_status*out){memset(out,0,sizeof(*out));out->stage="idle";out->enabled=settings.enabled;out->paused=auto_paused;}
+'''
+        code = '#define CONFIG_CLIP_UPLOAD_APP 1\n'+code[:at]+adapter+formatting+code[at:]
+        code += r'''
+static char response[1024];
+static void q(const char *name,const char *args,int transport,int type,int error){
+ struct at_cmd_ctx ctx={.name=name,.args=args,.transport_type=transport,.type=type};
+ int n=command(&ctx,response,sizeof(response));assert(n>0&&(size_t)n==strlen(response));
+ if(error){char expected[30];snprintf(expected,sizeof(expected),"\"error\":%d,",error);assert(strstr(response,expected));}
+ else assert(strstr(response,"\"ok\":true"));
+ assert(!strstr(response,"test-password")&&!strstr(response,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+}
+int main(void){
+ q("NETCFG","test,test-password",3,1,0);assert(config_saved);
+ q("UPLOADCFG","receiver,9527,fixture,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",1,1,0);
+ assert(config_saved);
+ q("UPLOADAUTO","on",3,1,0);assert(settings.enabled&&app_enabled&&!auto_paused);
+ int count=save_count;q("UPLOADAUTO","on",3,1,0);assert(count==save_count);
+ q("UPLOADAUTO",NULL,3,3,0);assert(strstr(response,"\"enabled\":true"));
+ q("UPLOAD",NULL,3,3,0);assert(strstr(response,"\"kind\":\"upload\""));
+ q("UPLOAD","20261024054528:1",3,1,-EACCES);
+ q("UPLOADCFG",NULL,3,3,0);assert(strstr(response,"\"configured\":true"));
+ q("UPLOADCFG","receiver,9527,fixture,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",3,1,-EBUSY);
+ q("UPLOADPERF","on",3,1,-EACCES);
+ q("NETCHECK",NULL,0,2,-EACCES);
+ active=auto_job=1;cancelled=0;save_error=-EIO;
+ q("UPLOADAUTO","off",3,1,-EIO);assert(settings.enabled&&!auto_paused&&!cancelled);
+ save_error=0;q("UPLOADAUTO","off",3,1,0);assert(!settings.enabled&&auto_paused&&cancelled&&!app_enabled);
+ q("NETCHECK",NULL,3,2,-EBUSY);
+ cancelled=0;q("NETCHECK","cancel",3,1,0);assert(!cancelled); /* Never cancels an unrelated upload. */
+ q("NETCFG",NULL,3,3,0); /* Read-only configuration remains available while active. */
+ q("NETCFG","new,test-password",3,1,-EBUSY);
+ active=auto_job=0;cancelled=0;
+ q("NETCHECK",NULL,3,2,0);assert(active&&checking_network&&app_job_network&&starts==1&&deadline>123);
+ assert(strstr(response,"\"accepted\":true"));
+ q("NETCHECK",NULL,3,3,0);assert(strstr(response,"checking"));
+ q("NETCHECK","cancel",3,1,0);assert(cancelled);
+ q("NETCHECK","bad",3,1,-EINVAL);
+ active=checking_network=0;
+ q("NETCFG","new,test-password",3,1,0);assert(!strcmp(network.state,"idle"));
+ return 0;
+}
+'''
+        compile_run(code)
 
     def test_cleanup_before_radio_start_is_safe_and_idempotent(self):
         source = (ROOT / "applications/clip/src/wifi_station.c").read_text()
@@ -233,6 +344,7 @@ int main(void) {
             root = Path(directory)
             code = '#include <stdbool.h>\n#include <string.h>\n#include <assert.h>\n'
             code += '#define CONFIG_CLIP_WIFI_DIAG 1\n#define IS_ENABLED(x) (x)\n'
+            code += '#define CONFIG_CLIP_DEBUG_INTERFACES 1\n#define CONFIG_CLIP_RESOURCE_STATS 1\n'
             code += 'static bool busy, pending;\nstatic bool https_poc_active(void) {return busy;}\n'
             code += 'static bool https_poc_record_pending(void) {return pending;}\n'
             code += 'bool https_poc_command_allowed' + policy

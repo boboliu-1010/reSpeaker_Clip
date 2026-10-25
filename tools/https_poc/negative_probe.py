@@ -57,12 +57,12 @@ def run(args):
             if state["state"] != "IDLE" or state["recording"]:
                 raise RuntimeError("Device must be idle")
             try:
-                query("AT+UPTIME=1700000000")
+                query("AT+TIME=1700000000")
                 start()
                 status = finish("certificate_not_yet_valid")
                 if status["stage"] != "failed" or status["sent"] != 0:
                     raise RuntimeError("Invalid certificate time was not rejected")
-                query("AT+UPTIME=" + str(int(time.time())))
+                query("AT+TIME=" + str(int(time.time())))
                 for attempt in range(args.cancel_repeat):
                     start()
                     query("AT+UPLOADCANCEL")
@@ -85,7 +85,7 @@ def run(args):
                     if query("AT+UPLOAD?")["active"]:
                         query("AT+UPLOADCANCEL")
                         finish("final_cleanup")
-                    query("AT+UPTIME=" + str(int(time.time())))
+                    query("AT+TIME=" + str(int(time.time())))
                 finally:
                     with os.fdopen(os.open(args.output / "summary.json",
                                            os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as summary:

@@ -4,15 +4,20 @@ import os
 from pathlib import Path
 import subprocess
 
+DTLS_CORE = (
+    "https-wifi-no-stbc.conf", "https-arp-backport.conf", "dtls-upload.conf",
+    "dtls-aead-hardware.conf", "dtls-upload-optimized.conf", "dtls-single.conf",
+)
 PRESETS = {
-    "dtls-optimized": (
-        "runtime.conf", "dtls-netdiag.conf",
-        "https-wifi-no-stbc.conf", "https-arp-backport.conf", "dtls-upload.conf",
-        "wifi-auth-log.conf", "dtls-aead-hardware.conf",
-        "dtls-upload-optimized.conf", "dtls-profile.conf",
-    ),
+    "dtls-single": DTLS_CORE,
 }
-PRESETS["dtls-single"] = (*PRESETS["dtls-optimized"], "dtls-single.conf")
+PRESETS["dtls-optimized"] = PRESETS["dtls-single"]
+DTLS_DIAGNOSTICS = ("runtime.conf", "dtls-netdiag.conf",
+                    "wifi-auth-log.conf", "dtls-profile.conf", "https-profile.conf")
+
+def preset_overlays(preset, production=False):
+    core = PRESETS.get(preset, ())
+    return (*core, *DTLS_DIAGNOSTICS) if core and not production else core
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -22,6 +27,8 @@ def main():
     parser.add_argument("--ca", type=Path, required=True)
     parser.add_argument("--preset", choices=PRESETS,
                         help="named full-application candidate configuration")
+    parser.add_argument("--production", action="store_true",
+                        help="use the baseline production snippet and omit preset diagnostics")
     parser.add_argument("--extra-conf", type=Path, action="append", default=[],
                         help="additional app-only config, appended after the transport base")
     args = parser.parse_args()
@@ -35,7 +42,7 @@ def main():
         parser.error("refusing to overwrite the baseline build")
     env = dict(os.environ, ZEPHYR_EXTRA_MODULES=str(repo),
                ZEPHYR_SDK_INSTALL_DIR=str(args.sdk.resolve()), CLIP_HTTPS_CA_FILE=str(ca))
-    overlays = [*[repo / "applications/clip" / name for name in PRESETS.get(args.preset, ())],
+    overlays = [*[repo / "applications/clip" / name for name in preset_overlays(args.preset, args.production)],
                 *[p.resolve() for p in args.extra_conf]]
     if any(not p.is_file() for p in overlays):
         parser.error("each --extra-conf must be an existing file")
@@ -49,7 +56,8 @@ def main():
     configs = [repo / "applications/clip" / ("dtls.conf" if dtls else "https.conf"), *overlays]
     command = ["west", "build", "--cmake", "--sysbuild", "-b", "clip/nrf5340/cpuapp",
                str(repo / "applications/clip"), "-d", str(build), "--",
-               "-DSNIPPET=production", "-DSNIPPET_ROOT=" + str(repo / "applications/clip"),
+               *(["-DSNIPPET=production", "-DSNIPPET_ROOT=" + str(repo / "applications/clip")]
+                 if args.production else ["-DSNIPPET="]),
                "-Dclip_EXTRA_CONF_FILE=" + ";".join(map(str, configs))]
     build.parent.mkdir(parents=True, exist_ok=True)
     log = build.parent / (build.name + ".log")

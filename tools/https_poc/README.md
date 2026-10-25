@@ -9,7 +9,7 @@
 - 使用已验证的外置 Wi-Fi 补丁布局；当前测试设备已完成备份、迁移和回读。其他未迁移设备仍须先完成这些步骤，不能只刷应用包。
 - BLE 保留；实验构建替换 AP 为 Station，USB 仅 CDC，不暴露录音磁盘。应用运行期间禁用 OTA 和非必要 AT 命令，bootloader 恢复入口不在本次修改范围。
 - 只允许空闲时上传，录音与上传不并行。上传中按键或 `AT+START` 会保存一个录音请求并异步取消上传，待文件、TLS 和 Wi-Fi 清理后自动启动录音；不允许其他文件传输。最多 8 MiB，保留本地文件，不改变原手机同步标记。
-- 配置默认只在 RAM，UPLOADSAVE 或 UPLOADAUTO=on 可将完整配置保存到设备 LittleFS；
+- Wi-Fi、接收端配置和自动上传开关均先保存到设备 LittleFS 再应用；
   开机加载有效配置，并按保存的开关调度。CA 公钥编入固件；证书链、域名和有效期验证开启。
   USB 可注入时间；未注入时通过配置的 SNTP 校时，失败则退避。
 - TLS 收发记录缓冲各 4 KiB，只针对受控测试服务器，不能据此承诺兼容任意互联网服务器或长证书链。
@@ -129,7 +129,7 @@ python3 tools/https_poc/device.py --port /dev/cu.usbmodemXXXX --cancel
 [设备持久状态](../../docs/https-upload-state.md) 和空闲查询 `AT+UPLOADSTATE=session:片段号`。
 还未实现空闲自动调度和自动重试；仍需外部再次发起命令。
 
-对应命令：`AT+NETCFG=ssid,password`、`AT+UPLOADCFG=host,port,device,token`、`AT+UPTIME=Unix秒`、`AT+UPLOAD=session:片段号`、`AT+UPLOAD?`、`AT+UPLOADCANCEL`。配置和上传控制仅接受 USB，响应不返回凭据。
+对应命令：`AT+NETCFG=ssid,password`、`AT+UPLOADCFG=host,port,device,token`、`AT+TIME=Unix秒`、`AT+UPLOAD=session:片段号`、`AT+UPLOAD?`、`AT+UPLOADCANCEL`。Wi-Fi 与接收端配置自动保存；启用 `CLIP_UPLOAD_APP` 后业务接口支持加密 BLE。手动单文件上传及诊断仅调试 USB 可用，需要 `CLIP_DEBUG_INTERFACES=y`；沿用基线默认构建与 production：`--preset dtls-single` 默认保留调试能力，加 `--production` 使用生产配置并关闭预设诊断。开启 `CLIP_UPLOAD_APP` 时，还支持异步 `NETCHECK`、持久化 `UPLOADAUTO`、状态查询及节流事件通知，见[协议](../../docs/protocol.md#ble-network-validation-and-automatic-upload-control)。响应不返回凭据。
 
 `AT+UPLOAD?` 的 `wifi_step` 是最近一次联网操作的子步骤：接口启动、无线电就绪、
 监管域、连接请求、DHCP 或共存配置。失败清理后保留该步骤及 `last_error`，

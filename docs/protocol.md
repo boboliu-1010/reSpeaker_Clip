@@ -1,7 +1,7 @@
 # reSpeaker Clip - BLE AT Protocol Specification
 
-> The optional `CLIP_HTTPS_POC` measurement build uses Wi-Fi Station and USB
-> CDC only (no AP or USB disk). Its USB-only configuration/upload commands
+> The optional `CLIP_HTTPS_POC` measurement build uses Wi-Fi Station with USB
+> CDC (no AP or USB disk). Its configuration/upload commands
 > and restrictions are documented in [HTTPS experiment](../tools/https_poc/README.md).
 
 In that experimental build, START during an upload queues one recording request
@@ -24,16 +24,126 @@ HTTPS state while idle. It never changes phone sync flags; see
 [persistent upload state](https-upload-state.md). `UPLOAD?` also reports
 `state_error` for local metadata persistence failures.
 `UPLOADAUTO=on/off` enables/disables persistent idle scheduling; `UPLOADAUTO?`
-reports scheduling and backoff state. `UPLOADSAVE` saves the full current config,
-`UPLOADCLEAR` removes it, and `UPLOADCLOCK=host,port` selects the boot-time SNTP
-endpoint. `UPLOADLIST=0` starts a two-item cursor page; subsequent requests use
-the returned `next` value while `more` is true. These commands are USB-only.
+reports scheduling and backoff state. Wi-Fi and receiver SET commands save
+before acknowledging success. `NETCFG=clear` forgets only Wi-Fi;
+`UPLOADCFG=clear` forgets only receiver enrollment. Both disable automatic
+uploading and preserve recordings. `UPLOADLIST=0` starts a two-item cursor page;
+subsequent requests use `next` while `more` is true. With `CLIP_UPLOAD_APP`,
+receiver configuration and file-state queries also accept encrypted BLE.
+Developer interfaces default on with baseline UART logging and off with the
+`production` snippet. The upload helper uses `--production` for that mode; no
+separate release/debug profile exists. Developer-only commands require
+`CLIP_DEBUG_INTERFACES`: `UPLOADCLEAR`,
+`UPLOADCLOCK`, per-file `UPLOAD=session:segment`, and performance diagnostics.
+`UPLOADSAVE` and `UPTIME` have been removed; use automatic configuration saves
+and the existing `AT+TIME` recorder clock command instead.
 See [automatic upload](https-auto-upload.md) for provisioning, recording priority,
 time verification, failure recovery, and the precise meaning of uploaded state.
 > Read-only `AT+RES` and thread stack queries remain available during uploads
 > when `CLIP_RESOURCE_STATS` is enabled. This is an experimental build profile.
 
 ## 1. Protocol Overview
+
+### Station Wi-Fi provisioning in the upload build
+
+`AT+NETCFG=<ssid>,<password>` and `AT+NETCFG?` are available over encrypted
+BLE GATT and USB. UDP is rejected. BLE SET is allowed only while the device is
+idle (no recording, upload or validation); the persistent automatic-upload
+enable flag is preserved. Receiver enrollment is also available over encrypted
+BLE when `CLIP_UPLOAD_APP` is enabled; instrumentation remains USB-only. The existing single-bond BLE policy is unchanged.
+
+Both BLE and USB SET save the credentials to the existing internal LittleFS settings record
+before acknowledging success. Successful
+SET and QUERY return the following shape; `ssid_hex` encodes UTF-8 bytes:
+
+```json
+{"ok":true,"error":0,"data":{"configured":true,"ssid_hex":"436c69702d54657374","saved":true,"config_error":0}}
+```
+
+Passwords are never returned. A failed save leaves the live configuration
+unchanged; repeating an already-saved identical configuration does not rewrite
+flash. On boot, the existing settings loader restores the saved credentials.
+Wi-Fi alone may be saved before receiver enrollment, but cannot enable uploads
+until a valid receiver and credential are configured. Receiver enrollment may
+also be saved first. `UPLOADCFG=host,port,device,token` saves transactionally;
+turn automatic uploading off before changing receiver enrollment. Queries never
+return the token. Configuration clears require idle state.
+
+SSID length is 1–32 UTF-8 bytes and WPA2 password length is 8–63 bytes. This
+comma-delimited format does not support commas in SSIDs; commas in passwords
+are allowed. NUL and line breaks are not supported. Each command must fit one
+GATT write; the caller must check the negotiated limit before sending credentials.
+Saving does not validate the password by connecting, and the saved flag does not
+mean Wi-Fi is currently connected. A Wi-Fi configuration change during an
+active recording/upload returns busy; retry when idle.
+
+### BLE network validation and automatic upload control
+
+With `CLIP_UPLOAD_APP` enabled (default for the full upload build with Bluetooth),
+the following commands accept encrypted BLE GATT and USB. UDP remains rejected:
+
+| Command | Behavior |
+|---|---|
+| `AT+NETCHECK` | Accept a bounded asynchronous Wi-Fi association/DHCP validation; return `accepted`, boot-local `job`, `state:"checking"` and `scope:"wifi_dhcp"`. |
+| `AT+NETCHECK?` | Query the most recent check: `idle`, `checking`, `succeeded`, `failed` or `cancelled`, with `job`, `checked_ms`, `ip`, `error`, `cleanup_error`. |
+| `AT+NETCHECK=cancel` | Request cancellation of a network check; never cancel an unrelated upload. |
+| `AT+UPLOADAUTO=on/off` | Persist the automatic-upload switch before applying it. Save failure preserves live settings. Repeated already-saved values do not rewrite flash. |
+| `AT+UPLOADAUTO?` | Query `enabled`, RAM-only `paused`, `config_saved`, `upload_ready`, errors, scheduling and backoff. |
+| `AT+UPLOAD?` | BLE returns `ok:true,data:{kind,job,session,segment,stage,active,automatic,enabled,paused,sent,received,confirmed,size,last_error}`. USB retains its existing flat response. |
+| `AT+UPLOADCANCEL` | Cancel the current upload and pause automatic scheduling in RAM; `UPLOADAUTO=on` resumes it. Use `UPLOADAUTO=off` for a persistent disable. |
+
+`NETCHECK` validates the saved credentials by association and DHCP only; it does
+not validate Internet access, DNS, time, DTLS or the receiver. It reuses the upload
+worker without file/TLS buffers. The normal recording-priority cancellation and
+radio cleanup paths apply. The check's terminal event is published after resource
+ownership is released. The radio is then off; `succeeded` records a completed
+check rather than promising a permanent connection. Changing Wi-Fi or rebooting
+invalidates this transient verification result, but not the saved credentials.
+
+The caller may provision Wi-Fi, start a check, match its terminal event by `job`,
+then enable automatic uploading. Enabling requires complete receiver enrollment;
+`upload_ready:false` means the configuration is incomplete. Receiver provisioning and idle `UPLOADSTATE`/`UPLOADLIST` queries are also
+available over encrypted BLE. Manual per-file upload and performance controls
+remain USB-only and require `CLIP_DEBUG_INTERFACES`.
+An enabled device continues scheduling without an App connection and reloads the
+switch/configuration on boot. Enabling does not immediately upload if recording,
+busy, no files are pending, or a retry delay applies.
+
+### BLE status and progress events
+
+Subscribe to the existing Response Send characteristic. No new service or
+characteristic is added. Events have a top-level `event` and are not AT replies:
+
+```json
+{"event":"upload","type":"progress","seq":12,"lost":0,"kind":"upload","job":2,"session":"20261024054528","segment":1,"stage":"sending","active":true,"automatic":true,"enabled":true,"paused":false,"sent":131072,"received":98304,"confirmed":65536,"size":1172750,"last_error":0}
+```
+
+`upload` types are `snapshot`, `progress`, `file_complete`, `file_failed`,
+`file_cancelled`, `job_complete`, `job_failed`, `job_cancelled`. Terminal events
+carry captured state for that file/job even if the next job has started. `kind`
+distinguishes `upload` from `wifi_check`, which shares the worker reservation.
+Only `confirmed` is durably acknowledged; sent/received bytes do not prove final
+SHA verification. File completion is emitted after local final state processing.
+
+`wifi_check` events contain the same check result fields as `NETCHECK?`, plus
+`seq` and `lost`. Error codes are negative errno values; a nonzero cleanup error
+must not be presented as a successful validation. A query itself may succeed
+(`ok:true`) while its last operation's `state` is `failed`.
+
+The AT thread sends notifications; the DATA loop never sends BLE messages.
+Progress is limited to roughly once per second; transitions/completions may be
+sent sooner. A bounded eight-event queue discards oldest entries on overflow,
+increments `lost`, and keeps newer results. Delivery is best effort. Query current
+status after sequence gaps or reconnect; notifications are not a durable history.
+New subscriptions receive current snapshots. `job`/`seq` are boot-local counters,
+not persistent IDs. Historical terminal events contain historical switch values;
+use the switch command reply/query for current enable state.
+
+Command replies, state events and progress events serialize complete JSON
+messages across MTU fragments. The sender holds a connection reference during
+transmission and requires encryption, so disconnect/reconnect cannot redirect
+remaining fragments to another connection. Notification failure or App disconnect
+does not fail or pause an upload.
 
 ### 1.1 Design Principles
 

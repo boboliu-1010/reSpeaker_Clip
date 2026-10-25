@@ -77,6 +77,46 @@ int main(void){
  disk_size--;assert(upload_config_init(&out)==-EBADMSG&&!out.enabled);
  assert(upload_config_save(&c)==0);write_error=1;assert(upload_config_save(&c)==-EIO&&upload_config_clear()==-EIO);write_error=0;
  assert(upload_config_clear()==0);assert(upload_config_init(&out)==0&&!out.enabled);
+ /* A fresh device can persist Wi-Fi alone and reload it after boot, without
+  * accidentally becoming upload-ready or accepting incomplete enrollment. */
+ struct upload_config network={.ssid="phone-net",.password="phone-pass",.clock_host="clock.example",.clock_port="123"};
+ assert(!upload_config_valid(&network));
+ assert(upload_config_save(&network)==0);
+ memset(&out,0,sizeof(out));assert(upload_config_init(&out)==0);
+ assert(!strcmp(out.ssid,"phone-net")&&!strcmp(out.password,"phone-pass"));
+ assert(!out.enabled&&!out.host[0]&&!upload_config_valid(&out));
+ network.enabled=1;assert(upload_config_save(&network)==-EINVAL);network.enabled=0;
+ strcpy(network.host,"incomplete.example");assert(upload_config_save(&network)==-EINVAL);network.host[0]=0;
+ write_error=1;strcpy(network.ssid,"replacement");assert(upload_config_save(&network)==-EIO);write_error=0;
+ assert(upload_config_init(&out)==0&&!strcmp(out.ssid,"phone-net"));
+ struct upload_config before=out;
+ write_error=1;assert(upload_config_save_network(&out,"new-phone","new-password")==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_save_network(&out,"new-phone","new-password")==0);
+ assert(!strcmp(out.ssid,"new-phone")&&!upload_config_valid(&out));
+ assert(upload_config_init(&out)==0&&!strcmp(out.ssid,"new-phone"));
+ assert(upload_config_clear()==0);assert(upload_config_init(&out)==0&&!out.ssid[0]);
+ out=c;assert(upload_config_save_enabled(&out,1)==0&&out.enabled);
+ assert(upload_config_init(&out)==0&&out.enabled);
+ before=out;write_error=1;assert(upload_config_save_enabled(&out,0)==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_init(&out)==0&&out.enabled);
+ assert(upload_config_save_enabled(&out,0)==0&&!out.enabled);
+ assert(upload_config_init(&out)==0&&!out.enabled);
+ assert(upload_config_forget(&out,UPLOAD_FORGET_WIFI)==0&&!out.ssid[0]&&out.host[0]&&!out.enabled);
+ assert(upload_config_init(&out)==0&&!out.ssid[0]&&out.host[0]);
+ assert(!upload_config_valid(&out));
+ assert(upload_config_save_network(&out,"restored-net","restored-pass")==0);
+ assert(upload_config_valid(&out));
+ before=out;write_error=1;assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==0&&out.ssid[0]&&!out.host[0]&&!out.enabled);
+ assert(upload_config_init(&out)==0&&out.ssid[0]&&!out.host[0]);
+ assert(upload_config_save_receiver(&out,"new.receiver","9527","new-device","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")==0);
+ assert(upload_config_valid(&out));
+ assert(upload_config_forget(&out,UPLOAD_FORGET_WIFI)==0);
+ assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==0);
+ assert(upload_config_init(&out)==0&&!out.host[0]&&!out.ssid[0]);
  assert(!watches);return 0;
 }
 '''

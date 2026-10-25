@@ -21,6 +21,11 @@
 #include "display.h"
 #include "config.h"
 #include "clip_event.h"
+#ifdef CONFIG_CLIP_UPLOAD_APP
+#include "upload_app.h"
+static K_MUTEX_DEFINE(response_send_lock);
+static struct k_spinlock response_conn_lock;
+#endif
 
 LOG_MODULE_REGISTER(ble, CONFIG_CLIP_LOG_LEVEL);
 
@@ -275,7 +280,14 @@ BT_GATT_SERVICE_DEFINE(clip_svc,
 /* CCC callback */
 static void resp_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spinlock_key_t key = k_spin_lock(&response_conn_lock);
+#endif
     ble_ctx.notify_enabled = (value & BT_GATT_CCC_NOTIFY);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spin_unlock(&response_conn_lock, key);
+    if (ble_ctx.notify_enabled) { upload_app_resync(); }
+#endif
     LOG_DBG("Notify: %d", ble_ctx.notify_enabled);
 
     /* Update transport when connection and notification are both ready */
@@ -385,7 +397,14 @@ static void connected(struct bt_conn *conn, uint8_t err)
     }
 
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    struct bt_conn *owned = bt_conn_ref(conn);
+    k_spinlock_key_t key = k_spin_lock(&response_conn_lock);
+    ble_ctx.conn = owned;
+    k_spin_unlock(&response_conn_lock, key);
+#else
     ble_ctx.conn = bt_conn_ref(conn);
+#endif
     mtu_exchanged = false;
 
     /* Update transport layer with new connection */
@@ -437,9 +456,18 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
         char addr[BT_ADDR_LE_STR_LEN];
 
         bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        k_spinlock_key_t key = k_spin_lock(&response_conn_lock);
+        struct bt_conn *owned = ble_ctx.conn;
+        ble_ctx.conn = NULL;
+        ble_ctx.notify_enabled = false;
+        k_spin_unlock(&response_conn_lock, key);
+        bt_conn_unref(owned);
+#else
         bt_conn_unref(ble_ctx.conn);
         ble_ctx.conn = NULL;
         ble_ctx.notify_enabled = false;
+#endif
         ble_ctx.file_data_notify_enabled = false;
         ble_ctx.audio_vis_notify_enabled = false;
 
@@ -720,22 +748,35 @@ int ble_register_cmd_callback(ble_cmd_callback_t callback)
     return -EINVAL;
 }
 
-int ble_send(const uint8_t *data, uint16_t len)
+static int ble_send_message(const uint8_t *data, uint16_t len)
 {
-    int err;
+    int err = 0;
     uint16_t max_len;
     size_t offset = 0;
     int chunk_count = 0;
 
-    if (!ble_ctx.conn || !ble_ctx.notify_enabled) {
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spinlock_key_t key = k_spin_lock(&response_conn_lock);
+    struct bt_conn *connection = ble_ctx.conn && ble_ctx.notify_enabled ? bt_conn_ref(ble_ctx.conn) : NULL;
+    k_spin_unlock(&response_conn_lock, key);
+#else
+    struct bt_conn *connection = ble_ctx.notify_enabled ? ble_ctx.conn : NULL;
+#endif
+    if (!connection) {
         return -ENOTCONN;
     }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    if (bt_conn_get_security(connection) < BT_SECURITY_L2) {
+        bt_conn_unref(connection);
+        return -EACCES;
+    }
+#endif
 
     /* Refresh inactivity timeout on outgoing data */
     ble_activity_refresh();
 
     /* MTU - 3 bytes ATT header = max notify payload */
-    max_len = bt_gatt_get_mtu(ble_ctx.conn) - 3;
+    max_len = bt_gatt_get_mtu(connection) - 3;
 
     /* Split into chunks if needed */
     while (offset < len)
@@ -746,12 +787,12 @@ int ble_send(const uint8_t *data, uint16_t len)
         }
 
         /* Response Send characteristic value is at attrs[4] */
-        err = bt_gatt_notify(ble_ctx.conn, &clip_svc.attrs[4],
+        err = bt_gatt_notify(connection, &clip_svc.attrs[4],
                              data + offset, chunk_len);
         if (err) {
             LOG_ERR("notify fail chunk %d off %u: %d",
                     chunk_count, (uint32_t)offset, err);
-            return err;
+            break;
         }
 
         chunk_count++;
@@ -763,9 +804,26 @@ int ble_send(const uint8_t *data, uint16_t len)
         }
     }
 
-    LOG_DBG("Sent %d chunks, total %u bytes", chunk_count, (uint32_t)len);
+    LOG_DBG("Sent %d chunks, requested %u bytes, result %d", chunk_count, (uint32_t)len, err);
 
-    return 0;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    bt_conn_unref(connection);
+#endif
+    return err;
+}
+
+int ble_send(const uint8_t *data, uint16_t len)
+{
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    /* Preserve a complete JSON message across MTU fragments, including events
+     * sent concurrently by the event thread and replies sent by the AT thread. */
+    k_mutex_lock(&response_send_lock, K_FOREVER);
+    int ret = ble_send_message(data, len);
+    k_mutex_unlock(&response_send_lock);
+    return ret;
+#else
+    return ble_send_message(data, len);
+#endif
 }
 
 int ble_notify_state_change(const char *state, const char *session_id, int duration)

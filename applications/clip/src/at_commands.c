@@ -364,6 +364,14 @@ static int cmd_time_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
         uint8_t min = tm_info->tm_min;
         uint8_t sec = tm_info->tm_sec;
 
+#ifdef CONFIG_CLIP_HTTPS_POC
+        /* One App time command updates both the recorder clock and the
+         * certificate-verification wall clock/readiness state. */
+        if (https_poc_set_time(timestamp)) {
+            return create_json_response(false, "Time update failed or upload busy", NULL, response, len);
+        }
+#endif
+
         c->time.year = year;
         c->time.month = month;
         c->time.day = day;

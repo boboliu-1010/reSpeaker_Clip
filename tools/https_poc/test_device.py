@@ -31,7 +31,7 @@ class ConfigurationTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in query.call_args_list], [
             "AT+NETCFG=Clip-Test,test-password",
             f"AT+UPLOADCFG=192.168.2.78,8443,clip-test,{config['token']}",
-            "AT+UPTIME=1800000000",
+            "AT+TIME=1800000000",
         ])
 
     def test_configuration_rejection_stops_later_commands(self):

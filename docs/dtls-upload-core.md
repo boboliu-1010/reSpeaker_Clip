@@ -42,13 +42,29 @@ cancellation closes the session; a later attempt asks the server for its offset.
 
 ## Build and operate
 
-For the measured candidate, run the helper with `--preset dtls-optimized`:
+Use `--preset dtls-single` for the maintained configuration:80KiB application
+heap, direct DTLS over UDP, hardware GCM,128-packet window and8KiB synchronous
+read-ahead. Files upload serially over one reused DTLS connection. The active
+source no longer contains the dual-channel, file-multiplexing or asynchronous
+SD producer experiments; their source and results remain in local archives.
+Recording hash caches, final server SHA256 verification, cancellation/resume,
+automatic queueing and completed DATA timing snapshots remain supported.
+
+The helper selects `applications/clip/dtls.conf` when the ordered overlays
+enable `CLIP_DTLS_UPLOAD`. DTLS uses direct mbedTLS over UDP: TCP and Zephyr's
+TLS socket wrapper are disabled. Certificate verification, DTLS encryption,
+Wi-Fi crypto and time synchronization remain enabled. HTTPS-only builds keep
+`https.conf`. The optimized DTLS preset no longer includes the TCP connection
+budget overlay. Transport cleanup leaves TLS buffers unchanged; `dtls-single`
+explicitly reserves an80KiB heap.
+
+For the maintained configuration, run the helper with `--preset dtls-single`:
 
 ```sh
 python tools/https_poc/build.py \
   --ncs /path/to/ncs --sdk /path/to/zephyr-sdk \
   --build /path/to/ncs/build-clip-dtls-candidate \
-  --ca /path/to/public-test-ca.pem --preset dtls-optimized
+  --ca /path/to/public-test-ca.pem --preset dtls-single
 ```
 
 This opt-in preset keeps the full recording application, runtime/network

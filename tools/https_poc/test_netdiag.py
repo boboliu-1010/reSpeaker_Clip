@@ -56,14 +56,20 @@ static void net_if_register_link_cb(struct net_if_link_cb *c,
     void (*fn)(struct net_if *, struct net_linkaddr *, int)) { (void)c; (void)fn; }
 struct net_stats {
     struct { uint64_t sent, received; } bytes;
-    struct { uint32_t sent, recv, drop; } ipv4, tcp;
+    struct { uint32_t sent, recv, drop; } ipv4;
+#ifdef CONFIG_NET_STATISTICS_TCP
+    struct { uint32_t sent, recv, drop; } tcp;
+#endif
     uint32_t processing_error;
 };
 static int queries;
 static int net_mgmt(int request, struct net_if *iface, void *out, size_t size) {
     assert(request == NET_REQUEST_STATS_GET_ALL && iface == &wifi);
     assert(size == sizeof(struct net_stats)); queries++;
-    struct net_stats s={.bytes={UINT64_C(0x100000002),3},.tcp={1,0,0}};
+    struct net_stats s={.bytes={UINT64_C(0x100000002),3}};
+#ifdef CONFIG_NET_STATISTICS_TCP
+    s.tcp.sent=1;
+#endif
     memcpy(out,&s,size); return 0;
 }
 struct at_cmd_ctx { int transport_type; const char *args; const char *name; };
@@ -88,6 +94,11 @@ int main(void) {
     diagnostic(&ctx,out,sizeof(out));
     assert(queries == 1); /* Cached reads never call network management. */
     assert(strstr(out,"\"valid\":true") && strstr(out,"\"tx_bytes\":2"));
+#ifdef CONFIG_NET_STATISTICS_TCP
+    assert(strstr(out,"\"tcp_tx\":1"));
+#else
+    assert(strstr(out,"\"tcp_tx\":0"));
+#endif
     assert(strstr(out,"\"result\":-116") && strstr(out,"\"flags\":11"));
     assert(strstr(out,"\"link_ok\":1") && strstr(out,"\"link_error\":1"));
     ctx.name="NETTRACE";
@@ -159,11 +170,12 @@ int main(void) {
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "test.c").write_text(fixture + source + checks)
-            subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-fsanitize=address,undefined", "-I",
-                            str(ROOT / "applications/clip/include"), str(root / "test.c"),
-                            "-o", str(root / "test")], check=True)
-            subprocess.run([str(root / "test")], check=True)
+            for options in ([], ["-DCONFIG_NET_STATISTICS_TCP=1"]):
+                subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                "-fsanitize=address,undefined", *options, "-I",
+                                str(ROOT / "applications/clip/include"), str(root / "test.c"),
+                                "-o", str(root / "test")], check=True)
+                subprocess.run([str(root / "test")], check=True)
 
 
 if __name__ == "__main__":

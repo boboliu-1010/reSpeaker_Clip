@@ -573,7 +573,8 @@ config CLIP_WIFI_AUTH_LOG
 config CLIP_WIFI_DIAG
 	bool "Passive HTTPS station network diagnostics"
 	depends on CLIP_HTTPS_POC && NET_STATISTICS_USER_API
-	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4 && NET_STATISTICS_TCP
+	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4
+	depends on !NET_TCP || NET_STATISTICS_TCP
 	default n
 	help
 	  Cache software network counters around station setup and TLS connect.

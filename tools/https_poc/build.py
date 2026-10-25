@@ -1,4 +1,4 @@
-"""Reproducible app-only HTTPS overlay build in an isolated NCS build directory."""
+"""Reproducible app-only HTTPS/DTLS builds in isolated NCS build directories."""
 import argparse
 import os
 from pathlib import Path
@@ -6,12 +6,13 @@ import subprocess
 
 PRESETS = {
     "dtls-optimized": (
-        "runtime.conf", "netdiag.conf", "https-connect-budget.conf",
+        "runtime.conf", "dtls-netdiag.conf",
         "https-wifi-no-stbc.conf", "https-arp-backport.conf", "dtls-upload.conf",
         "wifi-auth-log.conf", "dtls-aead-hardware.conf",
         "dtls-upload-optimized.conf", "dtls-profile.conf",
     ),
 }
+PRESETS["dtls-single"] = (*PRESETS["dtls-optimized"], "dtls-single.conf")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -22,7 +23,7 @@ def main():
     parser.add_argument("--preset", choices=PRESETS,
                         help="named full-application candidate configuration")
     parser.add_argument("--extra-conf", type=Path, action="append", default=[],
-                        help="additional app-only config, appended after https.conf")
+                        help="additional app-only config, appended after the transport base")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     ca = args.ca.resolve()
@@ -34,11 +35,18 @@ def main():
         parser.error("refusing to overwrite the baseline build")
     env = dict(os.environ, ZEPHYR_EXTRA_MODULES=str(repo),
                ZEPHYR_SDK_INSTALL_DIR=str(args.sdk.resolve()), CLIP_HTTPS_CA_FILE=str(ca))
-    configs = [repo / "applications/clip/https.conf",
-               *[repo / "applications/clip" / name for name in PRESETS.get(args.preset, ())],
-               *[p.resolve() for p in args.extra_conf]]
-    if any(not p.is_file() for p in configs):
+    overlays = [*[repo / "applications/clip" / name for name in PRESETS.get(args.preset, ())],
+                *[p.resolve() for p in args.extra_conf]]
+    if any(not p.is_file() for p in overlays):
         parser.error("each --extra-conf must be an existing file")
+    # Decide from the effective ordered transport selection, including manual
+    # --extra-conf DTLS builds, rather than inheriting the old HTTPS sockets.
+    dtls = False
+    for overlay in overlays:
+        for line in overlay.read_text().splitlines():
+            if line.strip() in ("CONFIG_CLIP_DTLS_UPLOAD=y", "CONFIG_CLIP_DTLS_UPLOAD=n"):
+                dtls = line.strip().endswith("=y")
+    configs = [repo / "applications/clip" / ("dtls.conf" if dtls else "https.conf"), *overlays]
     command = ["west", "build", "--cmake", "--sysbuild", "-b", "clip/nrf5340/cpuapp",
                str(repo / "applications/clip"), "-d", str(build), "--",
                "-DSNIPPET=production", "-DSNIPPET_ROOT=" + str(repo / "applications/clip"),

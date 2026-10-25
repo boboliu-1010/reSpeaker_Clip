@@ -145,7 +145,9 @@ void wifi_diag_capture(enum wifi_diag_point point, int result)
         /* Low 32 bits; compare modulo 2^32. Counters are cumulative since boot. */
         .tx_bytes = (uint32_t)stats.bytes.sent, .rx_bytes = (uint32_t)stats.bytes.received,
         .ip_tx = stats.ipv4.sent, .ip_rx = stats.ipv4.recv, .ip_drop = stats.ipv4.drop,
+#ifdef CONFIG_NET_STATISTICS_TCP
         .tcp_tx = stats.tcp.sent, .tcp_rx = stats.tcp.recv, .tcp_drop = stats.tcp.drop,
+#endif
         .processing_error = stats.processing_error,
         .link_ok = (uint32_t)atomic_get(&link_ok), .link_error = (uint32_t)atomic_get(&link_error),
         .link_status = (int)atomic_get(&link_status), .result = result,

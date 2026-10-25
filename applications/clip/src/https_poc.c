@@ -51,11 +51,13 @@ BUILD_ASSERT(IS_ENABLED(CONFIG_PSA_WANT_ALG_ECDSA) &&
              "The HTTPS experiment's EC test certificates require ECDHE-ECDSA support");
 #define MAX_FILE (8U * 1024U * 1024U)
 #define UPLOAD_CHUNK (16U * 1024U)
+#ifndef CONFIG_CLIP_DTLS_UPLOAD
 #define CONNECT_BUDGET_MS (CONFIG_NET_SOCKETS_CONNECT_TIMEOUT + \
                            CONFIG_NET_SOCKETS_TLS_CONNECT_TIMEOUT)
 BUILD_ASSERT(CONFIG_NET_SOCKETS_CONNECT_TIMEOUT > 0 &&
              CONFIG_NET_SOCKETS_TLS_CONNECT_TIMEOUT > 0 && CONNECT_BUDGET_MS <= 30000,
              "HTTPS requires bounded TCP + TLS connection timeouts (at most 30 seconds)");
+#endif
 static atomic_t active, cancelled, stage, last_error, bytes_sent;
 static atomic_t confirmed, resume_from, total_bytes;
 static atomic_t state_error;

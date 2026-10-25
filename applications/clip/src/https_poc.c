@@ -27,13 +27,6 @@ static uint16_t datagram_window_ceiling = CONFIG_CLIP_DTLS_WINDOW_PACKETS;
 #endif
 static uint16_t datagram_cache_bytes = CONFIG_CLIP_DTLS_READ_CACHE_BYTES;
 static uint8_t *datagram_cache;
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-#include "upload_prefetch.h"
-static bool datagram_prefetch_enabled;
-static uint8_t datagram_prefetch_priority = 8;
-static struct upload_prefetch *datagram_prefetch;
-static struct upload_prefetch_stats last_prefetch;
-#endif
 BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_PACKETS,
              "Initial DTLS window must not exceed its ceiling");
 #endif
@@ -865,18 +858,6 @@ static int datagram_read(uint32_t offset, uint8_t *out, size_t length)
     int ret = check_cancel(); if (ret) { return ret; }
     if (offset > file_length || length > file_length - offset) { return -EINVAL; }
     if (!cache_length || offset < cache_offset || offset + length > cache_offset + cache_length) {
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-        if (datagram_prefetch) {
-            uint32_t ready_length;
-            ret = upload_prefetch_take(datagram_prefetch, offset, &datagram_cache, &ready_length);
-            if (ret < 0) { return ret; }
-            if (ret > 0) {
-                cache_offset = offset; cache_length = ready_length;
-                memcpy(out, datagram_cache, length);
-                return 0;
-            }
-        }
-#endif
         uint64_t measured = dtls_profile_now();
         ret = fs_seek(&file, offset, FS_SEEK_SET);
         dtls_profile_add(DP_SD_SEEK, dtls_profile_now() - measured);
@@ -904,10 +885,6 @@ static void datagram_progress(uint32_t sent, uint32_t received, uint32_t durable
 }
 static int send_datagram_file(const struct upload_file_record *stamp)
 {
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-    if (datagram_prefetch) { return -EBUSY; }
-    struct upload_prefetch_stats prefetch_stats = {0};
-#endif
 #ifdef CONFIG_CLIP_DTLS_PROFILE
     int configured = dtls_upload_set_window(datagram, datagram_initial_window, datagram_window_ceiling);
     if (configured) { return configured; }
@@ -922,32 +899,10 @@ static int send_datagram_file(const struct upload_file_record *stamp)
         .credential = token, .segment = segment, .size = file_length};
     memcpy(identity.sha256, stamp->content_sha256, sizeof(identity.sha256));
     cache_length = 0;
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-    if (datagram_prefetch_enabled && file_length > 8192) {
-        char path[STORAGE_PATH_MAX];
-        int error = datagram_cache_bytes == 8192 ?
-            storage_build_chunk_path(session, segment, path, sizeof(path)) : -EINVAL;
-        if (!error) { error = upload_prefetch_open(&datagram_prefetch, path, file_length,
-                                                  datagram_prefetch_priority, check_cancel); }
-        prefetch_stats.start_error = error;
-    }
-#endif
     struct dtls_upload_stats statistics;
     int ret = dtls_upload_file(datagram, &identity, datagram_read, datagram_progress, &statistics);
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-    if (datagram_prefetch) {
-        int error = upload_prefetch_close(&datagram_prefetch, &prefetch_stats);
-        if (error) {
-            atomic_set(&cleanup_error, error);
-            if (!ret) { ret = error; }
-        }
-    }
-#endif
     k_free(datagram_cache); datagram_cache = NULL;
     k_mutex_lock(&control_lock, K_FOREVER); last_datagram = statistics;
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-    last_prefetch = prefetch_stats;
-#endif
     k_mutex_unlock(&control_lock);
     return ret;
 }
@@ -1323,43 +1278,12 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
     if (!strcmp(ctx->name, "UPLOADNET")) {
 #ifdef CONFIG_CLIP_DTLS_PROFILE
         if (ctx->type == AT_CMD_TYPE_SET) {
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-            if (ctx->args && !strcmp(ctx->args, "prefetch")) {
-                const struct upload_prefetch_stats *p = &last_prefetch;
-                bool saturated = p->read_us > UINT32_MAX || p->seek_us > UINT32_MAX || p->wait_us > UINT32_MAX;
-                return snprintf(response, length,
-                    "{\"ok\":true,\"data\":{\"enabled\":%s,\"priority\":%u,\"started\":%s,\"saturated\":%s,"
-                    "\"read_us\":%u,\"seek_us\":%u,\"wait_us\":%u,"
-                    "\"requests\":%u,\"reads\":%u,\"deliveries\":%u,\"fallbacks\":%u,\"discarded\":%u,"
-                    "\"stack_size\":%u,\"stack_peak\":%u,\"start_error\":%d,\"read_error\":%d,\"close_error\":%d}}\n",
-                    datagram_prefetch_enabled ? "true" : "false", datagram_prefetch_priority,
-                    p->started ? "true" : "false",
-                    saturated ? "true" : "false", (uint32_t)MIN(p->read_us, UINT32_MAX),
-                    (uint32_t)MIN(p->seek_us, UINT32_MAX), (uint32_t)MIN(p->wait_us, UINT32_MAX),
-                    p->requests, p->reads, p->deliveries,
-                    p->fallbacks, p->discarded, p->stack_size, p->stack_peak,
-                    p->start_error, p->read_error, p->close_error);
-            }
-#endif
             /* Read the last completed file under control_lock, even while the
              * worker sends the next file. Mutating commands still require idle. */
             if (ctx->args && !strcmp(ctx->args, "timing")) {
                 return dtls_profile_format(&last_datagram.timing, response, length);
             }
             if (https_poc_active() || https_poc_record_pending()) { ret = -EBUSY; goto reply; }
-#ifdef CONFIG_CLIP_DTLS_PREFETCH
-            if (ctx->args && (!strcmp(ctx->args, "prefetch,on") || !strcmp(ctx->args, "prefetch,off") ||
-                             !strcmp(ctx->args, "prefetch,6") || !strcmp(ctx->args, "prefetch,7") ||
-                             !strcmp(ctx->args, "prefetch,8"))) {
-                bool enable = strcmp(ctx->args, "prefetch,off") != 0;
-                if (enable && datagram_cache_bytes != 8192) { ret = -EINVAL; goto reply; }
-                if (ctx->args[9] >= '6' && ctx->args[9] <= '8') {
-                    datagram_prefetch_priority = ctx->args[9] - '0';
-                }
-                datagram_prefetch_enabled = enable;
-                goto reply;
-            }
-#endif
 #ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
             if (ctx->args && (!strncmp(ctx->args, "measure,", 8) || !strncmp(ctx->args, "measure-cache,", 14))) {
                 bool fresh = !strncmp(ctx->args, "measure,", 8);

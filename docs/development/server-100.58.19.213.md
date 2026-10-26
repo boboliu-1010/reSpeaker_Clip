@@ -31,6 +31,6 @@ ssh bobo@100.58.19.213 'journalctl --user -u boa-server-beta4 -n 30 --no-pager'
 - 服务器运行环境：20 项新服务/既有存储测试通过，包括真实 DTLS 握手与恢复。
 - 本机到开发机 HTTPS：64 MiB WAV 上传、下载、整文件 SHA256 一致；首轮上行约3.28 MB/s、下行约0.99 MB/s；连接修复后的复测上行约1.30 MB/s、下行约1.03 MB/s（含客户端哈希/落盘与完成确认）。
 - 实际 HTTPS 用户隔离：另一用户查不到列表和 metadata/content/HEAD；无效凭据401。
-- 外部 UDP 9528 DTLS 握手超时；按用户要求先交付 Beta，网络处理后复测。端口监听与主机测试不代表外部网络可达。
+- 2026-10-26 外部 UDP 9528 复测通过：Mac 直连开发机，连续 3 次完成 DTLS 握手、65,553 字节上传、落盘回执、HTTPS 列表查询和下载，SHA256 一致。证书链与 IP 均校验通过。[测试记录](../testing/2026-10-26-udp-9528.md)
 
 [服务安装说明](../../services/boa_server/README.md)

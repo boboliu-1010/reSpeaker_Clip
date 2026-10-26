@@ -1,188 +1,8 @@
 # reSpeaker Clip - BLE AT Protocol Specification
 
-> The maintained DTLS upload build retains the baseline AT command handlers,
-> including recording settings and BLE download. The optimized preset still
-> disables Wi-Fi AP support and USB disk; restoring command admission does not
-> enable these compiled-out components. Current build and diagnostic entry points
-> are in [upload tools](../tools/upload/README.md).
-
-Baseline command compatibility in the upload build:
-
-- Device/settings queries (`DEVICE`, `MODE?`, `AUTODEL?`, `BRIGHTNESS?`, `NAME?`,
-  `PAIR?`, `WIFI?`, `WIFICFG?`, `TIME?`, `USB?`, `LOG?`) remain available during
-  upload. Existing command flags and response formats are unchanged.
-- Baseline setting writes require idle state and no upload, pending recording
-  or phone download. `PAUSE`, `RESUME` and `MARK` are restored for recording;
-  `START`/`STOP` retain upload preemption and pending-start semantics below.
-- SD queries (`LIST`, `MARKS`, `STORAGE`) are rejected during upload or pending
-  recording. Download, delete, format, AP switching and device-management
-  operations reserve access against background uploads. AP switching additionally
-  requires an AP-capable build. `CANCEL` still cancels
-  the phone download; `UPLOADCANCEL` cancels the server upload.
-- Accepted delayed reboot/reset operations keep the reservation until reboot.
-  Baseline `PAIR=reset` includes SD erasure; this behavior has not been changed.
-  Busy operations return `ok:false` with
-  `msg:"Busy: upload or conflicting device operation"`.
-- Optional diagnostics remain controlled by their existing build options and
-  transport restrictions. Restoring baseline commands does not enable developer
-  interfaces in production.
-
-In the maintained upload build, START during an upload queues one recording request
-and returns `{"ok":true,"data":{"pending":true,"session":null}}`. It does not
-mean capture has started. Repeated START requests coalesce without changing the
-first request's mode. GSTAT adds `record_pending` (boolean) and `record_error`
-(the last deferred-start result, zero or negative errno). Wait for `recording:true`
-and obtain the actual session ID then. STOP can cancel a pending start. Upload
-resources are released before the queued recording starts; no concurrent capture
-and upload is promised. The upload thread owns the UDP/DTLS context
-and checks cancellation between short I/O waits; DNS, cryptographic work and
-audio startup still require end-to-end latency validation. Stock builds retain
-their existing START/GSTAT responses.
-The USB `UPLOAD` status includes `protocol:3`, `size`, `sent`, `received`,
-`confirmed` and `resume_from`. The server checkpoint is queried on every job;
-only `confirmed` means durably acknowledged bytes. See the
-[DTLS upload flow](dtls-upload-core.md#协议流程) for identities and recovery.
-`UPLOADSTATE=session:segment` reads the separate, destination-bound persistent
-upload state while idle. It never changes phone sync flags; see
-[persistent upload state](dtls-upload-core.md#本地状态与内容哈希). `UPLOAD?` also reports
-`state_error` for local metadata persistence failures.
-`UPLOADAUTO=on/off` enables/disables persistent idle scheduling; `UPLOADAUTO?`
-reports scheduling and backoff state. Wi-Fi and receiver SET commands save
-before acknowledging success. `NETCFG=clear` forgets only Wi-Fi;
-`UPLOADCFG=clear` forgets only receiver enrollment. Both disable automatic
-uploading and preserve recordings. `UPLOADLIST=0` starts a two-item cursor page;
-subsequent requests use `next` while `more` is true. With `CLIP_UPLOAD_APP`,
-receiver configuration and file-state queries also accept encrypted BLE.
-Developer interfaces default on with baseline UART logging and off with the
-`production` snippet. The upload helper uses `--production` for that mode; no
-separate release/debug profile exists. Developer-only commands require
-`CLIP_DEBUG_INTERFACES`: `UPLOADCLEAR`,
-`UPLOADCLOCK`, per-file `UPLOAD=session:segment`, and performance diagnostics.
-`UPLOADSAVE` and `UPTIME` have been removed; use automatic configuration saves
-and the existing `AT+TIME` recorder clock command instead.
-See [automatic upload](dtls-upload-core.md#自动调度) for provisioning, recording priority,
-time verification, failure recovery, and the precise meaning of uploaded state.
-> Read-only `AT+RES` and thread stack queries remain available during uploads
-> when `CLIP_RESOURCE_STATS` is enabled. Diagnostics are excluded from production.
+> 以下为上游 v0.1.2 基线资料；当前上传固件的差异见文末[当前上传分支补充](#当前上传分支补充)。基线功能、构建方式和性能数据不等于本分支已启用功能或实测结果。
 
 ## 1. Protocol Overview
-
-### Recording format in the maintained build
-
-Both normal and enhanced modes currently merge the two microphones to mono at
-16 kHz. Their default Opus target is 32 kbit/s VBR; enhanced processing does not
-automatically double the stored file size. Read actual metadata and bytes rather
-than inferring stereo from the normal/stereo command alias.
-
-### Station Wi-Fi provisioning in the upload build
-
-`AT+NETCFG=<ssid>,<password>` and `AT+NETCFG?` are available over encrypted
-BLE GATT and USB. UDP is rejected. BLE SET is allowed only while the device is
-idle (no recording, upload or validation); the persistent automatic-upload
-enable flag is preserved. Receiver enrollment is also available over encrypted
-BLE when `CLIP_UPLOAD_APP` is enabled; instrumentation remains USB-only. The existing single-bond BLE policy is unchanged.
-
-Both BLE and USB SET save the credentials to the device LittleFS settings record on external SPI NOR
-before acknowledging success. Successful
-SET and QUERY return the following shape; `ssid_hex` encodes UTF-8 bytes:
-
-```json
-{"ok":true,"error":0,"data":{"configured":true,"ssid_hex":"436c69702d54657374","saved":true,"config_error":0}}
-```
-
-Passwords are never returned. A failed save leaves the live configuration
-unchanged; repeating an already-saved identical configuration does not rewrite
-flash. On boot, the existing settings loader restores the saved credentials.
-Wi-Fi alone may be saved before receiver enrollment, but cannot enable uploads
-until a valid receiver and credential are configured. Receiver enrollment may
-also be saved first. `UPLOADCFG=host,port,device,token` saves transactionally;
-turn automatic uploading off before changing receiver enrollment. Queries never
-return the token. Configuration clears require idle state.
-
-SSID length is 1–32 UTF-8 bytes and WPA2 password length is 8–63 bytes. This
-comma-delimited format does not support commas in SSIDs; commas in passwords
-are allowed. NUL and line breaks are not supported. Each command must fit one
-GATT write; the caller must check the negotiated limit before sending credentials.
-Saving does not validate the password by connecting, and the saved flag does not
-mean Wi-Fi is currently connected. A Wi-Fi configuration change during an
-active recording/upload returns busy; retry when idle.
-
-Production upload firmware defaults to deleting a **whole recording session**
-after every sealed segment has a matching complete upload journal and the final
-upload has succeeded. Default diagnostic builds retain recordings. `UPLOAD?`
-and upload notifications include `delete_after_upload` and `delete_error`;
-`session_deleted` / `session_delete_failed` are upload event types. A cleanup
-failure is separate from a successful upload. Deleted sessions disappear from
-the device list; App cloud listing is a separate integration. See
-[deletion and recovery](dtls-upload-core.md#automatic-deletion-after-upload).
-
-### BLE network validation and automatic upload control
-
-With `CLIP_UPLOAD_APP` enabled (default for the full upload build with Bluetooth),
-the following commands accept encrypted BLE GATT and USB. UDP remains rejected:
-
-| Command | Behavior |
-|---|---|
-| `AT+NETCHECK` | Accept a bounded asynchronous Wi-Fi association/DHCP validation; return `accepted`, boot-local `job`, `state:"checking"` and `scope:"wifi_dhcp"`. |
-| `AT+NETCHECK?` | Query the most recent check: `idle`, `checking`, `succeeded`, `failed` or `cancelled`, with `job`, `checked_ms`, `ip`, `error`, `cleanup_error`. |
-| `AT+NETCHECK=cancel` | Request cancellation of a network check; never cancel an unrelated upload. |
-| `AT+UPLOADAUTO=on/off` | Persist the automatic-upload switch before applying it. Save failure preserves live settings. Repeated already-saved values do not rewrite flash. |
-| `AT+UPLOADAUTO?` | Query `enabled`, RAM-only `paused`, `config_saved`, `upload_ready`, errors, scheduling and backoff. |
-| `AT+UPLOAD?` | BLE returns `ok:true,data:{kind,job,session,segment,stage,active,automatic,enabled,paused,sent,received,confirmed,size,last_error}`. USB retains its existing flat response. |
-| `AT+UPLOADCANCEL` | Cancel the current upload and pause automatic scheduling in RAM; `UPLOADAUTO=on` resumes it. Use `UPLOADAUTO=off` for a persistent disable. |
-
-`NETCHECK` validates the saved credentials by association and DHCP only; it does
-not validate Internet access, DNS, time, DTLS or the receiver. It reuses the upload
-worker without file/TLS buffers. The normal recording-priority cancellation and
-radio cleanup paths apply. The check's terminal event is published after resource
-ownership is released. The radio is then off; `succeeded` records a completed
-check rather than promising a permanent connection. Changing Wi-Fi or rebooting
-invalidates this transient verification result, but not the saved credentials.
-
-The caller may provision Wi-Fi, start a check, match its terminal event by `job`,
-then enable automatic uploading. Enabling requires complete receiver enrollment;
-`upload_ready:false` means the configuration is incomplete. Receiver provisioning and idle `UPLOADSTATE`/`UPLOADLIST` queries are also
-available over encrypted BLE. Manual per-file upload and performance controls
-remain USB-only and require `CLIP_DEBUG_INTERFACES`.
-An enabled device continues scheduling without an App connection and reloads the
-switch/configuration on boot. Enabling does not immediately upload if recording,
-busy, no files are pending, or a retry delay applies.
-
-### BLE status and progress events
-
-Subscribe to the existing Response Send characteristic. No new service or
-characteristic is added. Events have a top-level `event` and are not AT replies:
-
-```json
-{"event":"upload","type":"progress","seq":12,"lost":0,"kind":"upload","job":2,"session":"20261024054528","segment":1,"stage":"sending","active":true,"automatic":true,"enabled":true,"paused":false,"sent":131072,"received":98304,"confirmed":65536,"size":1172750,"last_error":0}
-```
-
-`upload` types are `snapshot`, `progress`, `file_complete`, `file_failed`,
-`file_cancelled`, `job_complete`, `job_failed`, `job_cancelled`. Terminal events
-carry captured state for that file/job even if the next job has started. `kind`
-distinguishes `upload` from `wifi_check`, which shares the worker reservation.
-Only `confirmed` is durably acknowledged; sent/received bytes do not prove final
-SHA verification. File completion is emitted after local final state processing.
-
-`wifi_check` events contain the same check result fields as `NETCHECK?`, plus
-`seq` and `lost`. Error codes are negative errno values; a nonzero cleanup error
-must not be presented as a successful validation. A query itself may succeed
-(`ok:true`) while its last operation's `state` is `failed`.
-
-The AT thread sends notifications; the DATA loop never sends BLE messages.
-Progress is limited to roughly once per second; transitions/completions may be
-sent sooner. A bounded eight-event queue discards oldest entries on overflow,
-increments `lost`, and keeps newer results. Delivery is best effort. Query current
-status after sequence gaps or reconnect; notifications are not a durable history.
-New subscriptions receive current snapshots. `job`/`seq` are boot-local counters,
-not persistent IDs. Historical terminal events contain historical switch values;
-use the switch command reply/query for current enable state.
-
-Command replies, state events and progress events serialize complete JSON
-messages across MTU fragments. The sender holds a connection reference during
-transmission and requires encryption, so disconnect/reconnect cannot redirect
-remaining fragments to another connection. Notification failure or App disconnect
-does not fail or pause an upload.
 
 ### 1.1 Design Principles
 
@@ -1372,16 +1192,84 @@ AT+NAME?
 
 ##### AT+WIFI - WiFi AP Control
 
-The maintained upload image has no AP service. `AT+WIFI?` remains a compatibility
-query; `AT+WIFI=on/off` is unsupported in this build. Configure Station upload
-with `NETCFG` and control scheduling with `UPLOADAUTO`; WIFI does not select the
-server-upload connection. Optional baseline AP framing is in Appendix D.
+Control the WiFi Access Point for local file transfer.
+
+**Request (Start):**
+```
+AT+WIFI=on
+```
+
+**Request (Stop):**
+```
+AT+WIFI=off
+```
+
+**Request (Query):**
+```
+AT+WIFI?
+```
+
+**Response (Start):**
+```json
+{
+  "ok": true,
+  "data": {
+    "ssid": "ClipAP_A1B2",
+    "password": "12345678",
+    "ip": "192.168.4.1",
+    "port": 8089
+  }
+}
+```
+
+**Response (Stop):**
+```json
+{
+  "ok": true,
+  "data": { "wifi": "off" }
+}
+```
+
+**Response (Query):**
+```json
+{
+  "ok": true,
+  "data": {
+    "running": true,
+    "ssid": "ClipAP_A1B2",
+    "password": "12345678",
+    "ip": "192.168.4.1",
+    "port": 8089,
+    "connected": true
+  }
+}
+```
+
+**Fields:**
+- `ssid`: WiFi SSID (ClipAP_XXXX, last 4 hex of chip ID)
+- `password`: WPA2 password (12345678)
+- `ip`: AP IP address (192.168.4.1)
+- `port`: UDP transfer port (8089)
+- `running`: Whether AP is active
+- `connected`: Whether a client is connected
+
+**State Change:** IDLE → WIFI_SYNC (on), WIFI_SYNC → IDLE (off)
+
+**Constraints:**
+- Cannot start WiFi while recording
+- Cannot start recording while WiFi is active
+
+**Auto-off:** WiFi AP automatically stops after 3 minutes if no client connects.
+
+**Error Cases:**
+- `{"ok":false,"msg":"Missing argument (on/off)"}` / `"Invalid argument (use on/off)"`
+- `"Cannot start WiFi in current state"` / `"Failed to start WiFi AP"` / `"Failed to stop WiFi AP"`
 
 ---
 
-##### AT+USB - USB CDC Control
+##### AT+USB - USB CDC+MSC Control
 
-The maintained upload build enables/disables USB CDC AT access only. MSC is compiled out, so this does not expose recording files as a USB disk.
+Enable or disable USB CDC (serial console) and MSC (mass storage / SD card access).
 
 **Request (Enable):**
 ```
@@ -2085,7 +1973,7 @@ Stored in each session directory, contains session information, sync progress, a
   "duration": 600,
   "files": 30,
   "synced": 15,
-  "channels": 1,
+  "channels": 2,
   "sample_rate": 16000,
   "mode": "normal"
 }
@@ -2109,7 +1997,7 @@ Stored in each session directory, contains session information, sync progress, a
 **Example Usage:**
 ```
 # Session has 30 files, 15 have been transferred
-# Audio is normal mode (mono) at 16kHz
+# Audio is normal mode (stereo, 2 channels) at 16kHz
 # Next transfer should start from file 0016.opus
 AT+DOWNLOAD=20240203100000:0016.opus
 ```
@@ -2543,17 +2431,36 @@ Device: <TRANSFER_DONE "20240203100000" count=30>
 
 ## Appendix C: Performance Characteristics
 
-Current DTLS DATA and whole-job rates must be measured separately; there is no
-universal upload speed guarantee. See [upload performance](dtls-upload-core.md#当前配置与诊断)
-and [build resources](development.md#当前资源基准). The Wi-Fi AP download figure from
-the original device protocol is not an uplink benchmark for this firmware.
+### BLE Transfer Rates
+
+| MTU | Throughput | 1MB Time |
+|-----|------------|----------|
+| 23 | ~8 KB/s | ~2m 5s |
+| 247 | ~22 KB/s | ~46s |
+| 517 | ~28 KB/s | ~36s |
+
+**Optimal Configuration:** MTU 517
+
+### WiFi UDP Transfer Rates
+
+| Scenario | Throughput | 1MB Time |
+|----------|------------|----------|
+| Typical WiFi | ~500 KB/s | ~2s |
+
+### Memory Usage
+
+| Component | Usage |
+|-----------|-------|
+| Audio buffer | 32 KB |
+| Opus encoder | 20 KB |
+| SpeexDSP | 10 KB |
+| Transfer buffer | 4 KB |
+| BLE stack | ~50 KB |
+| Total fixed | ~116 KB |
+
+**Available heap:** ~32 KB from 192 KB non-secure SRAM
 
 ## Appendix D: WiFi UDP Transfer Protocol
-
-> The maintained `dtls-single` firmware compiles out AP service. The framing below
-> documents the optional baseline AP code in this repository; it is not the
-> DTLS/UDP upload protocol or a feature available in the maintained upload image.
-
 
 The WiFi UDP transport provides high-speed local file transfer when the device is in WiFi AP mode. It uses the same binary frame protocol as BLE (Section 4) with additional frames for reliability and keepalive.
 
@@ -2589,6 +2496,7 @@ The WiFi UDP transport provides high-speed local file transfer when the device i
 | Per-frame CRC | None (link layer) | IEEE CRC32 per frame |
 | FILE_ACK | None | Yes (CRC mismatch → retransmit) |
 | Heartbeat | None | ~200 ms during transfer, 30s idle timeout |
+| Throughput | ~15 KB/s | ~500 KB/s |
 
 ### D.4 Frame Formats (UDP-specific differences)
 
@@ -2836,7 +2744,242 @@ server.
 **4. Document it** in this file — add the full command section under 3.3.x
 and a row in the Appendix A quick reference table, in the same PR.
 
-## Appendix G: Firmware upgrade in the upload build
+## Appendix G: BLE OTA for Client Developers
+
+For mobile apps implementing in-app firmware update.
+
+**Transport.** The running application exposes the standard mcumgr SMP
+service over BLE (`CONFIG_NCS_SAMPLE_MCUMGR_BT_OTA_DFU=y` in
+`applications/clip/prj.conf`, which selects Zephyr's `MCUMGR_TRANSPORT_BT`):
+
+- Service UUID: `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`
+- Characteristic (write + notify): `DA2E7828-FBCE-4E01-AE9E-261174997C48`
+
+Speak plain mcumgr/SMP (CBOR-encoded image management group) over that
+characteristic — the same protocol `mcumgr` / `newtmgr` clients use.
+
+**No bootloader reboot needed.** Image upload happens into the secondary slot
+while the application keeps running. The device is dual-image
+(`CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER=2`): image 0 = application
+core, image 1 = network core.
+
+**Swap semantics — important.** This board's MCUboot runs in **overwrite-only
+mode** (`MCUBOOT_MODE_OVERWRITE_ONLY` is the board default in
+`boards/seeed/clip/Kconfig.sysbuild`). That means:
+
+- There is **no image-test / image-confirm / automatic revert**. The classic
+  mcumgr "test then confirm" dance does not apply.
+- After upload completes, send the mcumgr reset (OS group) — on reboot
+  MCUboot overwrites the primary slot with the new image and boots it
+  **immediately and unconditionally**. A bad image cannot roll back.
+
+**Which artifact to upload:**
+
+- `clip-<ver>-ota.zip` (the sysbuild `dfu_application.zip`) — multi-image
+  package containing app core **and** network core images. Preferred.
+- `clip-<ver>-signed.bin` — application-core image only.
+
+Both are attached to each GitHub Release. Host-tool procedures (mcumgr CLI,
+nRF Connect, USB serial DFU fallback) are covered in
+[`docs/usb_dfu.md`](usb_dfu.md).
+
+
+---
+
+## 当前上传分支补充
+
+> The maintained DTLS upload build retains the baseline AT command handlers,
+> including recording settings and BLE download. The optimized preset still
+> disables Wi-Fi AP support and USB disk; restoring command admission does not
+> enable these compiled-out components. Current build and diagnostic entry points
+> are in [upload tools](../tools/upload/README.md).
+
+Baseline command compatibility in the upload build:
+
+- Device/settings queries (`DEVICE`, `MODE?`, `AUTODEL?`, `BRIGHTNESS?`, `NAME?`,
+  `PAIR?`, `WIFI?`, `WIFICFG?`, `TIME?`, `USB?`, `LOG?`) remain available during
+  upload. Existing command flags and response formats are unchanged.
+- Baseline setting writes require idle state and no upload, pending recording
+  or phone download. `PAUSE`, `RESUME` and `MARK` are restored for recording;
+  `START`/`STOP` retain upload preemption and pending-start semantics below.
+- SD queries (`LIST`, `MARKS`, `STORAGE`) are rejected during upload or pending
+  recording. Download, delete, format, AP switching and device-management
+  operations reserve access against background uploads. AP switching additionally
+  requires an AP-capable build. `CANCEL` still cancels
+  the phone download; `UPLOADCANCEL` cancels the server upload.
+- Accepted delayed reboot/reset operations keep the reservation until reboot.
+  Baseline `PAIR=reset` includes SD erasure; this behavior has not been changed.
+  Busy operations return `ok:false` with
+  `msg:"Busy: upload or conflicting device operation"`.
+- Optional diagnostics remain controlled by their existing build options and
+  transport restrictions. Restoring baseline commands does not enable developer
+  interfaces in production.
+
+In the maintained upload build, START during an upload queues one recording request
+and returns `{"ok":true,"data":{"pending":true,"session":null}}`. It does not
+mean capture has started. Repeated START requests coalesce without changing the
+first request's mode. GSTAT adds `record_pending` (boolean) and `record_error`
+(the last deferred-start result, zero or negative errno). Wait for `recording:true`
+and obtain the actual session ID then. STOP can cancel a pending start. Upload
+resources are released before the queued recording starts; no concurrent capture
+and upload is promised. The upload thread owns the UDP/DTLS context
+and checks cancellation between short I/O waits; DNS, cryptographic work and
+audio startup still require end-to-end latency validation. Stock builds retain
+their existing START/GSTAT responses.
+The USB `UPLOAD` status includes `protocol:3`, `size`, `sent`, `received`,
+`confirmed` and `resume_from`. The server checkpoint is queried on every job;
+only `confirmed` means durably acknowledged bytes. See the
+[DTLS upload flow](dtls-upload-core.md#协议流程) for identities and recovery.
+`UPLOADSTATE=session:segment` reads the separate, destination-bound persistent
+upload state while idle. It never changes phone sync flags; see
+[persistent upload state](dtls-upload-core.md#本地状态与内容哈希). `UPLOAD?` also reports
+`state_error` for local metadata persistence failures.
+`UPLOADAUTO=on/off` enables/disables persistent idle scheduling; `UPLOADAUTO?`
+reports scheduling and backoff state. Wi-Fi and receiver SET commands save
+before acknowledging success. `NETCFG=clear` forgets only Wi-Fi;
+`UPLOADCFG=clear` forgets only receiver enrollment. Both disable automatic
+uploading and preserve recordings. `UPLOADLIST=0` starts a two-item cursor page;
+subsequent requests use `next` while `more` is true. With `CLIP_UPLOAD_APP`,
+receiver configuration and file-state queries also accept encrypted BLE.
+Developer interfaces default on with baseline UART logging and off with the
+`production` snippet. The upload helper uses `--production` for that mode; no
+separate release/debug profile exists. Developer-only commands require
+`CLIP_DEBUG_INTERFACES`: `UPLOADCLEAR`,
+`UPLOADCLOCK`, per-file `UPLOAD=session:segment`, and performance diagnostics.
+`UPLOADSAVE` and `UPTIME` have been removed; use automatic configuration saves
+and the existing `AT+TIME` recorder clock command instead.
+See [automatic upload](dtls-upload-core.md#自动调度) for provisioning, recording priority,
+time verification, failure recovery, and the precise meaning of uploaded state.
+> Read-only `AT+RES` and thread stack queries remain available during uploads
+> when `CLIP_RESOURCE_STATS` is enabled. Diagnostics are excluded from production.
+
+### Recording format in the maintained build
+
+Both normal and enhanced modes currently merge the two microphones to mono at
+16 kHz. Their default Opus target is 32 kbit/s VBR; enhanced processing does not
+automatically double the stored file size. Read actual metadata and bytes rather
+than inferring stereo from the normal/stereo command alias.
+
+### Station Wi-Fi provisioning in the upload build
+
+`AT+NETCFG=<ssid>,<password>` and `AT+NETCFG?` are available over encrypted
+BLE GATT and USB. UDP is rejected. BLE SET is allowed only while the device is
+idle (no recording, upload or validation); the persistent automatic-upload
+enable flag is preserved. Receiver enrollment is also available over encrypted
+BLE when `CLIP_UPLOAD_APP` is enabled; instrumentation remains USB-only. The existing single-bond BLE policy is unchanged.
+
+Both BLE and USB SET save the credentials to the device LittleFS settings record on external SPI NOR
+before acknowledging success. Successful
+SET and QUERY return the following shape; `ssid_hex` encodes UTF-8 bytes:
+
+```json
+{"ok":true,"error":0,"data":{"configured":true,"ssid_hex":"436c69702d54657374","saved":true,"config_error":0}}
+```
+
+Passwords are never returned. A failed save leaves the live configuration
+unchanged; repeating an already-saved identical configuration does not rewrite
+flash. On boot, the existing settings loader restores the saved credentials.
+Wi-Fi alone may be saved before receiver enrollment, but cannot enable uploads
+until a valid receiver and credential are configured. Receiver enrollment may
+also be saved first. `UPLOADCFG=host,port,device,token` saves transactionally;
+turn automatic uploading off before changing receiver enrollment. Queries never
+return the token. Configuration clears require idle state.
+
+SSID length is 1–32 UTF-8 bytes and WPA2 password length is 8–63 bytes. This
+comma-delimited format does not support commas in SSIDs; commas in passwords
+are allowed. NUL and line breaks are not supported. Each command must fit one
+GATT write; the caller must check the negotiated limit before sending credentials.
+Saving does not validate the password by connecting, and the saved flag does not
+mean Wi-Fi is currently connected. A Wi-Fi configuration change during an
+active recording/upload returns busy; retry when idle.
+
+Production upload firmware defaults to deleting a **whole recording session**
+after every sealed segment has a matching complete upload journal and the final
+upload has succeeded. Default diagnostic builds retain recordings. `UPLOAD?`
+and upload notifications include `delete_after_upload` and `delete_error`;
+`session_deleted` / `session_delete_failed` are upload event types. A cleanup
+failure is separate from a successful upload. Deleted sessions disappear from
+the device list; App cloud listing is a separate integration. See
+[deletion and recovery](dtls-upload-core.md#automatic-deletion-after-upload).
+
+### BLE network validation and automatic upload control
+
+With `CLIP_UPLOAD_APP` enabled (default for the full upload build with Bluetooth),
+the following commands accept encrypted BLE GATT and USB. UDP remains rejected:
+
+| Command | Behavior |
+|---|---|
+| `AT+NETCHECK` | Accept a bounded asynchronous Wi-Fi association/DHCP validation; return `accepted`, boot-local `job`, `state:"checking"` and `scope:"wifi_dhcp"`. |
+| `AT+NETCHECK?` | Query the most recent check: `idle`, `checking`, `succeeded`, `failed` or `cancelled`, with `job`, `checked_ms`, `ip`, `error`, `cleanup_error`. |
+| `AT+NETCHECK=cancel` | Request cancellation of a network check; never cancel an unrelated upload. |
+| `AT+UPLOADAUTO=on/off` | Persist the automatic-upload switch before applying it. Save failure preserves live settings. Repeated already-saved values do not rewrite flash. |
+| `AT+UPLOADAUTO?` | Query `enabled`, RAM-only `paused`, `config_saved`, `upload_ready`, errors, scheduling and backoff. |
+| `AT+UPLOAD?` | BLE returns `ok:true,data:{kind,job,session,segment,stage,active,automatic,enabled,paused,sent,received,confirmed,size,last_error}`. USB retains its existing flat response. |
+| `AT+UPLOADCANCEL` | Cancel the current upload and pause automatic scheduling in RAM; `UPLOADAUTO=on` resumes it. Use `UPLOADAUTO=off` for a persistent disable. |
+
+`NETCHECK` validates the saved credentials by association and DHCP only; it does
+not validate Internet access, DNS, time, DTLS or the receiver. It reuses the upload
+worker without file/TLS buffers. The normal recording-priority cancellation and
+radio cleanup paths apply. The check's terminal event is published after resource
+ownership is released. The radio is then off; `succeeded` records a completed
+check rather than promising a permanent connection. Changing Wi-Fi or rebooting
+invalidates this transient verification result, but not the saved credentials.
+
+The caller may provision Wi-Fi, start a check, match its terminal event by `job`,
+then enable automatic uploading. Enabling requires complete receiver enrollment;
+`upload_ready:false` means the configuration is incomplete. Receiver provisioning and idle `UPLOADSTATE`/`UPLOADLIST` queries are also
+available over encrypted BLE. Manual per-file upload and performance controls
+remain USB-only and require `CLIP_DEBUG_INTERFACES`.
+An enabled device continues scheduling without an App connection and reloads the
+switch/configuration on boot. Enabling does not immediately upload if recording,
+busy, no files are pending, or a retry delay applies.
+
+### BLE status and progress events
+
+Subscribe to the existing Response Send characteristic. No new service or
+characteristic is added. Events have a top-level `event` and are not AT replies:
+
+```json
+{"event":"upload","type":"progress","seq":12,"lost":0,"kind":"upload","job":2,"session":"20261024054528","segment":1,"stage":"sending","active":true,"automatic":true,"enabled":true,"paused":false,"sent":131072,"received":98304,"confirmed":65536,"size":1172750,"last_error":0}
+```
+
+`upload` types are `snapshot`, `progress`, `file_complete`, `file_failed`,
+`file_cancelled`, `job_complete`, `job_failed`, `job_cancelled`. Terminal events
+carry captured state for that file/job even if the next job has started. `kind`
+distinguishes `upload` from `wifi_check`, which shares the worker reservation.
+Only `confirmed` is durably acknowledged; sent/received bytes do not prove final
+SHA verification. File completion is emitted after local final state processing.
+
+`wifi_check` events contain the same check result fields as `NETCHECK?`, plus
+`seq` and `lost`. Error codes are negative errno values; a nonzero cleanup error
+must not be presented as a successful validation. A query itself may succeed
+(`ok:true`) while its last operation's `state` is `failed`.
+
+The AT thread sends notifications; the DATA loop never sends BLE messages.
+Progress is limited to roughly once per second; transitions/completions may be
+sent sooner. A bounded eight-event queue discards oldest entries on overflow,
+increments `lost`, and keeps newer results. Delivery is best effort. Query current
+status after sequence gaps or reconnect; notifications are not a durable history.
+New subscriptions receive current snapshots. `job`/`seq` are boot-local counters,
+not persistent IDs. Historical terminal events contain historical switch values;
+use the switch command reply/query for current enable state.
+
+Command replies, state events and progress events serialize complete JSON
+messages across MTU fragments. The sender holds a connection reference during
+transmission and requires encryption, so disconnect/reconnect cannot redirect
+remaining fragments to another connection. Notification failure or App disconnect
+does not fail or pause an upload.
+
+
+### 当前上传性能口径
+
+Current DTLS DATA and whole-job rates must be measured separately; there is no
+universal upload speed guarantee. See [upload performance](dtls-upload-core.md#当前配置与诊断)
+and [build resources](development.md#当前资源基准). The Wi-Fi AP download figure from
+the original device protocol is not an uplink benchmark for this firmware.
+
+
+### 当前上传固件升级限制
 
 Application BLE OTA is disabled in the maintained upload build. BLE AT control,
 including the supported command to enter recovery, is separate from BLE SMP OTA.
@@ -2864,6 +3007,7 @@ Indexes may change across queries; identify threads by ID and name. Each
 request scans only one stack with the thread monitor lock held. No settings
 or workloads are changed by either form. See `tools/runtime_resources` for
 measurement limitations and collection instructions.
+
 
 ## Optional passive Wi-Fi diagnostics (`CLIP_WIFI_DIAG`)
 

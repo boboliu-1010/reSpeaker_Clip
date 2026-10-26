@@ -543,6 +543,24 @@ config CLIP_BATTERY_WIFI_TX_LOAD_MA
 	  transfer is active (AP up + transfer). Calibrate the same way as
 	  CLIP_BATTERY_WIFI_AP_LOAD_MA during an active transfer.
 
+config CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA
+	int "Unseen Station radio current while no upload job runs (mA; 0=unknown)"
+	range 0 500
+	default 0
+	help
+	  Battery-rail current not covered by PMIC IBAT. Requires Station-specific
+	  calibration; the AP defaults are not Station measurements. Zero leaves
+	  the compensation unknown, not a claim that WiFi draws no current.
+
+config CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA
+	int "Unseen Station radio current during upload/check jobs (mA; 0=unknown)"
+	range 0 500
+	default 0
+	help
+	  Extra radio current during association, TLS and upload while the Station
+	  interface is up. A configured value is an estimate until independently
+	  calibrated on the battery rail. PMIC current must not be counted twice.
+
 config CLIP_BATTERY_IDLE_CURRENT_UA
 	int "Average battery current while idle, fed to the fuel gauge (uA)"
 	default 400

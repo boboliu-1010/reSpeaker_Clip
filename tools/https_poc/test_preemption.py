@@ -77,6 +77,8 @@ static int atomic_get(int *v) { return *v; }
 static void atomic_set(int *v, int n) { *v = n; }
 static void atomic_clear(int *v) { *v = 0; }
 static bool atomic_cas(int *v, int old, int n) { if (*v != old) return false; *v = n; return true; }
+static unsigned battery_polls;
+static void battery_request_poll(void) { battery_polls++; }
 static void k_sem_give(int *sem) { (*sem)++; }
 static bool audio_is_recording(void) { return audio_active; }
 static bool transfer_is_active(void) { return downloading; }
@@ -136,6 +138,7 @@ int main(int argc, char **argv) {
     cancelled = stalled = last_error = bytes_sent = 1;
     assert(start_upload(selector) == 0);
     assert(started_jobs == 1 && start_job == 1);
+    assert(battery_polls == 1);
     assert(!stalled && !last_error && !bytes_sent);
     assert(!strcmp(session, "20261019070446") && segment == 1);
     if (!inject_start) {
@@ -165,6 +168,7 @@ int main(int argc, char **argv) {
     assert(cancelled && !interrupts);
     finish_upload();
     assert(!active && !record_pending);
+    assert(battery_polls == 2);
     if (!strcmp(argv[1], "cleanup-failure")) {
         assert(!record_starts && !audio_active && record_error == -EIO);
     } else if (!strcmp(argv[1], "stop") || !strcmp(argv[1], "poweroff")) {

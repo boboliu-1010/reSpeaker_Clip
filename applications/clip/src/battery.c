@@ -18,6 +18,8 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
+#include <errno.h>
 
 #include "battery.h"
 #include "clip.h"
@@ -27,6 +29,11 @@
 #include "transfer.h"
 #include "wifi.h"
 #include "audio.h"
+#ifdef CONFIG_CLIP_HTTPS_POC
+#include "https_poc.h"
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/wifi_mgmt.h>
+#endif
 
 LOG_MODULE_REGISTER(battery, CONFIG_CLIP_LOG_LEVEL);
 
@@ -231,6 +238,13 @@ void battery_poll(void)
 	read_and_update();
 }
 
+void battery_request_poll(void)
+{
+	if (init_complete) {
+		k_work_reschedule(&battery_level_work, K_NO_WAIT);
+	}
+}
+
 /* Save the fuel gauge state to settings (LittleFS). Call on SoC change + on
  * graceful shutdown/reboot so the SoC is continuous across reboots. */
 /* Internal: assumes the caller holds battery_mutex (the nRF Fuel Gauge is
@@ -327,14 +341,24 @@ static int charge_status_inform(int32_t chg_status)
 					       &state_info);
 }
 
+static bool vbus_status_valid;
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+static int32_t vbus_status_raw;
+#endif
+
 static bool poll_vbus_status(void)
 {
-	struct sensor_value val;
-	int ret = sensor_channel_get(charger_dev, SENSOR_CHAN_NPM13XX_CHARGER_VBUS_STATUS, &val);
-	if (ret < 0) {
-		return false;
-	}
-	return val.val1 != 0;
+	struct sensor_value val = {0};
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+	int raw_ret = sensor_channel_get(charger_dev, SENSOR_CHAN_NPM13XX_CHARGER_VBUS_STATUS, &val);
+	vbus_status_raw = raw_ret ? -1 : val.val1;
+#endif
+	/* The channel is a bitfield: e.g. SUSPENDED != PRESENT. Ask the
+	 * driver for PRESENT specifically rather than treating any bit as VBUS. */
+	int ret = sensor_attr_get(charger_dev, SENSOR_CHAN_NPM13XX_CHARGER_VBUS_STATUS,
+				  SENSOR_ATTR_NPM13XX_CHARGER_VBUS_PRESENT, &val);
+	vbus_status_valid = ret == 0;
+	return vbus_status_valid && val.val1 != 0;
 }
 
 /* WiFi radio load the NPM1300 IBAT sense cannot see, in amperes.
@@ -346,23 +370,113 @@ static bool poll_vbus_status(void)
  * UDP transfer / off) so it can be folded into the current fed to
  * nrf_fuel_gauge_process() as extra discharge. Calibrate the two mA values
  * from CLIP_BATTERY_WIFI_*_LOAD_MA against (total_battery - |IBAT|). */
-static float wifi_load_estimate_a(void)
-{
-	if (!IS_ENABLED(CONFIG_CLIP_BATTERY_WIFI_LOAD_COMPENSATION)) {
-		return 0.0f;
-	}
+struct battery_load {
+	bool active, station_job, station_radio, wifi_unmodeled;
+	int wifi_ma;
+};
 
-	/* Two calibrated tiers — both are REAL current the PMIC IBAT cannot
-	 * see (nRF7002 is fed from VBAT upstream of the sense resistor), so
-	 * both must be billed while the AP is up:
-	 * AP idle (beaconing/standby) and active UDP transfer. */
-	int ma = 0;
-	if (wifi_ap_is_running()) {
-		ma = transfer_is_active() ? CONFIG_CLIP_BATTERY_WIFI_TX_LOAD_MA
-					  : CONFIG_CLIP_BATTERY_WIFI_AP_LOAD_MA;
+static struct battery_load battery_load_snapshot(bool charger_connected)
+{
+	bool ap = wifi_ap_is_running(), transfer = transfer_is_active();
+	struct battery_load load = {0};
+#ifdef CONFIG_CLIP_HTTPS_POC
+	load.station_job = https_poc_active();
+	struct net_if *iface = net_if_get_first_wifi();
+	load.station_radio = !ap && iface && net_if_is_up(iface);
+#endif
+	load.active = charger_connected || audio_is_recording() || transfer || ap ||
+		      load.station_job || load.station_radio;
+	if (IS_ENABLED(CONFIG_CLIP_BATTERY_WIFI_LOAD_COMPENSATION)) {
+		if (ap) {
+			load.wifi_ma = transfer ? CONFIG_CLIP_BATTERY_WIFI_TX_LOAD_MA :
+						 CONFIG_CLIP_BATTERY_WIFI_AP_LOAD_MA;
+		} else if (load.station_radio) {
+			load.wifi_ma = load.station_job ? CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA :
+							CONFIG_CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA;
+		}
 	}
-	return (float)ma / 1000.0f;
+	load.wifi_unmodeled = (ap || load.station_radio) && load.wifi_ma == 0;
+	return load;
 }
+
+static float battery_model_current(float pmic_current, struct battery_load load)
+{
+	/* PMIC sign: negative discharging. Gauge sign: positive discharging. */
+	return load.active ? -pmic_current + (float)load.wifi_ma / 1000.0f :
+		(float)CONFIG_CLIP_BATTERY_IDLE_CURRENT_UA / 1000000.0f;
+}
+
+struct battery_interval {
+	bool valid, wifi_unmodeled;
+	float current;
+};
+static struct battery_interval gauge_interval;
+
+static float battery_interval_current(struct battery_interval *previous, float next,
+				     bool unknown, bool *interval_unknown)
+{
+	/* Integrate the PRECEDING interval using its starting sample. Otherwise
+	 * the first upload sample would bill a preceding minute of idle at the
+	 * new upload current. Transition polls bound the remaining edge error. */
+	float used = previous->valid ? previous->current : next;
+	*interval_unknown = previous->valid ? previous->wifi_unmodeled : unknown;
+	*previous = (struct battery_interval){true, unknown, next};
+	return used;
+}
+
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+static struct {
+	bool valid, gauge_ready, vbus, active, station_job, station_radio, wifi_unmodeled;
+	uint32_t sampled_ms, interval_ms;
+	int32_t pmic_discharge_ua, model_current_ua, interval_current_ua, wifi_comp_ua, raw_soc_milli_percent;
+	int64_t model_net_uas;
+	uint64_t unmodeled_wifi_ms;
+} battery_diag;
+
+static void battery_counter_text(char text[22], uint64_t magnitude, bool negative)
+{
+	/* Target snprintf does not support 64-bit conversions. Keep JSON numeric
+	 * without changing libc/printf configuration or narrowing the counters. */
+	char *at = text + 21;
+	*at = '\0';
+	do {
+		*--at = (char)('0' + magnitude % 10);
+		magnitude /= 10;
+	} while (magnitude);
+	if (negative) { *--at = '-'; }
+	memmove(text, at, (size_t)(text + 22 - at));
+}
+
+int battery_diag_format(char *response, size_t len)
+{
+	k_mutex_lock(&battery_mutex, K_FOREVER);
+	char net[22], unknown[22];
+	bool negative = battery_diag.model_net_uas < 0;
+	uint64_t magnitude = (uint64_t)battery_diag.model_net_uas;
+	if (negative) { magnitude = 0ULL - magnitude; }
+	battery_counter_text(net, magnitude, negative);
+	battery_counter_text(unknown, battery_diag.unmodeled_wifi_ms, false);
+	int n = snprintf(response, len,
+		"{\"ok\":true,\"data\":{\"valid\":%s,\"gauge_ready\":%s,"
+		"\"age_ms\":%u,\"interval_ms\":%u,\"vbus\":%s,\"vbus_valid\":%s,\"vbus_status_raw\":%d,\"active\":%s,"
+		"\"station_job\":%s,\"station_radio\":%s,\"wifi_unmodeled\":%s,"
+		"\"pmic_discharge_ua\":%d,\"wifi_comp_ua\":%d,\"model_current_ua\":%d,\"interval_current_ua\":%d,"
+		"\"raw_soc_milli_percent\":%d,\"display_percent\":%u,"
+		"\"model_net_uas\":%s,\"unmodeled_wifi_ms\":%s,"
+		"\"energy_calibrated\":false}}\n",
+		battery_diag.valid ? "true":"false", battery_diag.gauge_ready ? "true":"false",
+		(uint32_t)k_uptime_get_32() - battery_diag.sampled_ms, battery_diag.interval_ms,
+		battery_diag.vbus ? "true":"false", vbus_status_valid ? "true":"false", vbus_status_raw,
+		battery_diag.active ? "true":"false",
+		battery_diag.station_job ? "true":"false", battery_diag.station_radio ? "true":"false",
+		battery_diag.wifi_unmodeled ? "true":"false", battery_diag.pmic_discharge_ua,
+		battery_diag.wifi_comp_ua, battery_diag.model_current_ua, battery_diag.interval_current_ua,
+		battery_diag.raw_soc_milli_percent,
+		last_percent, net, unknown);
+	k_mutex_unlock(&battery_mutex);
+	return n < 0 || (size_t)n >= len ? -ENOSPC : n;
+}
+#endif
 
 /* Piecewise-linear voltage-to-SoC estimate for the HSZ 362123 Li-Po.
  * Coarse (no load/temperature correction) — used as the fallback SoC
@@ -408,6 +522,8 @@ static void read_and_update_locked(void)
 
 	/* Get VBUS status */
 	vbus_connected = poll_vbus_status();
+	/* A failed power-status read must not manufacture a discharge interval. */
+	if (!vbus_status_valid) { return; }
 
 	/* ---- High-temperature charge gating (software hysteresis) ----
 	 * The HW hot threshold (45C, thermistor-hot-millidegrees in DTS)
@@ -452,6 +568,11 @@ static void read_and_update_locked(void)
 	/* Determine charger connected status */
 	charger_connected = vbus_connected && (is_trickle || is_cc || is_cv || charger_complete);
 
+	struct battery_load load = battery_load_snapshot(charger_connected);
+	float model_current = 0.0f, interval_current = 0.0f, raw_soc = 0.0f;
+	bool interval_unknown = false;
+	uint32_t interval_ms = 0;
+
 	/* Update VBUS state in fuel gauge */
 	if (fg_initialized) {
 		ret = nrf_fuel_gauge_ext_state_update(
@@ -475,7 +596,7 @@ static void read_and_update_locked(void)
 		/* Feed the gauge a current it can trust.
 		 *
 		 * ACTIVE (charging / recording / transfer): the one-shot IBAT
-		 * sample is representative — use it, plus the transfer-only WiFi
+		 * sample is representative — use it, plus the configured WiFi
 		 * compensation for the nRF70 current that bypasses the PMIC
 		 * sense resistor.
 		 *
@@ -487,28 +608,21 @@ static void read_and_update_locked(void)
 		 * current is known ahead of time: feed the configured average
 		 * instead, keep V/T real, and mirror it into idle_set() so the
 		 * library's predictions agree. */
-		bool fg_active = charger_connected || audio_is_recording() ||
-				 transfer_is_active();
-		float i_feed;
-		if (fg_active) {
-			/* nrf_fuel_gauge lib expects negative = charging;
-			 * GAUGE_AVG_CURRENT is negative = discharging, so negate.
-			 * Without this the coulomb count runs backwards. */
-			float wifi_load_a = wifi_load_estimate_a();
-			if (wifi_load_a != last_wifi_load_a) {
-				last_wifi_load_a = wifi_load_a;
-				LOG_INF("Battery fg: ibat=%d mA, wifi_comp=%d mA",
-					(int)(current * 1000.0f),
-					(int)(wifi_load_a * 1000.0f));
-			}
-			i_feed = -current + wifi_load_a;
-		} else {
-			i_feed = (float)CONFIG_CLIP_BATTERY_IDLE_CURRENT_UA / 1000000.0f;
-			nrf_fuel_gauge_idle_set(voltage, temp, i_feed);
+		float wifi_load_a = (float)load.wifi_ma / 1000.0f;
+		if (wifi_load_a != last_wifi_load_a) {
+			last_wifi_load_a = wifi_load_a;
+			LOG_INF("Battery fg: wifi_comp=%d mA, unmodeled=%d", load.wifi_ma,
+				load.wifi_unmodeled);
 		}
-
-		float soc = nrf_fuel_gauge_process(voltage, i_feed, temp, delta, NULL);
-		percent = (uint8_t)soc;
+		model_current = battery_model_current(current, load);
+		if (!load.active) {
+			nrf_fuel_gauge_idle_set(voltage, temp, model_current);
+		}
+		interval_ms = (uint32_t)(delta * 1000.0f);
+		interval_current = battery_interval_current(&gauge_interval, model_current,
+						     load.wifi_unmodeled, &interval_unknown);
+		raw_soc = nrf_fuel_gauge_process(voltage, interval_current, temp, delta, NULL);
+		percent = (uint8_t)raw_soc;
 
 		/* Determine charging status for display/BLE:
 		 * - Charging if VBUS connected AND (trickle/CC/CV active OR not yet full)
@@ -525,6 +639,7 @@ static void read_and_update_locked(void)
 	} else {
 		/* Fallback: piecewise-linear voltage-SoC curve for HSZ 362123 Li-Po */
 		percent = voltage_soc_estimate(voltage);
+		raw_soc = percent;
 		bool battery_full = (percent >= BATTERY_FULL_THRESHOLD);
 		charging = charger_connected && (!charger_complete || !battery_full);
 	}
@@ -675,6 +790,29 @@ static void read_and_update_locked(void)
 		}
 	}
 
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+	battery_diag.valid = true;
+	battery_diag.gauge_ready = fg_initialized;
+	battery_diag.vbus = vbus_connected;
+	battery_diag.active = load.active;
+	battery_diag.station_job = load.station_job;
+	battery_diag.station_radio = load.station_radio;
+	battery_diag.wifi_unmodeled = load.wifi_unmodeled;
+	battery_diag.sampled_ms = k_uptime_get_32();
+	battery_diag.interval_ms = interval_ms;
+	battery_diag.pmic_discharge_ua = (int32_t)(-current * 1000000.0f);
+	battery_diag.model_current_ua = (int32_t)(model_current * 1000000.0f);
+	battery_diag.interval_current_ua = (int32_t)(interval_current * 1000000.0f);
+	battery_diag.wifi_comp_ua = load.wifi_ma * 1000;
+	battery_diag.raw_soc_milli_percent = (int32_t)(raw_soc * 1000.0f);
+	/* Gauge INPUT integral only; not a calibrated battery energy meter. */
+	battery_diag.model_net_uas += (int64_t)battery_diag.interval_current_ua * interval_ms / 1000;
+	if (interval_unknown) { battery_diag.unmodeled_wifi_ms += interval_ms; }
+#else
+	ARG_UNUSED(interval_ms);
+	ARG_UNUSED(interval_unknown);
+#endif
+
 	/* Expose voltage + temp for AT+GSTAT / AT+BATT (refreshed every poll). */
 	ctx->status.battery_mv = (uint16_t)(voltage * 1000.0f);
 	ctx->status.battery_temp = (int8_t)temp;
@@ -742,19 +880,21 @@ static void battery_level_handler(struct k_work *work)
 {
 	read_and_update();
 	/* Persist the fuel-gauge state when its displayed integer SoC changes,
-	 * and at least every 10 polls (~10 min) so a reboot never loses more
-	 * than ~10 min of coulomb counting. read_and_update() has already
+	 * and at least every ten minutes so a reboot never loses more
+	 * than ~10 min of coulomb counting. Network polling must not accelerate saves. read_and_update() has already
 	 * released battery_mutex, so take it here — the save reads the library
 	 * state, which must not race a concurrent poll. */
-	static uint32_t fg_save_polls;
-	if (last_percent != last_saved_soc || ++fg_save_polls >= 10) {
-		fg_save_polls = 0;
+	static int64_t last_fg_save_ms;
+	int64_t now = k_uptime_get();
+	if (last_percent != last_saved_soc || now - last_fg_save_ms >= 600000) {
+		last_fg_save_ms = now;
 		k_mutex_lock(&battery_mutex, K_FOREVER);
 		battery_save_fg_state_unlocked();
 		k_mutex_unlock(&battery_mutex);
 		last_saved_soc = last_percent;
 	}
-	k_work_schedule(&battery_level_work, K_SECONDS(60));
+	struct battery_load load = battery_load_snapshot(false);
+	k_work_schedule(&battery_level_work, K_SECONDS(load.station_job || load.station_radio ? 5 : 60));
 }
 
 int battery_init(void)
@@ -854,10 +994,12 @@ int battery_init(void)
 
 			/* Initialize VBUS state */
 			bool vbus_connected = poll_vbus_status();
-			nrf_fuel_gauge_ext_state_update(
-				vbus_connected ? NRF_FUEL_GAUGE_EXT_STATE_INFO_VBUS_CONNECTED
-					       : NRF_FUEL_GAUGE_EXT_STATE_INFO_VBUS_DISCONNECTED,
-				NULL);
+			if (vbus_status_valid) {
+				nrf_fuel_gauge_ext_state_update(
+					vbus_connected ? NRF_FUEL_GAUGE_EXT_STATE_INFO_VBUS_CONNECTED
+						       : NRF_FUEL_GAUGE_EXT_STATE_INFO_VBUS_DISCONNECTED,
+					NULL);
+			}
 
 			fg_ref_time = k_uptime_get();
 		}

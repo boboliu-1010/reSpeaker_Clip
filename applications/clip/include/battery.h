@@ -7,6 +7,8 @@
 #ifndef CLIP_BATTERY_H
 #define CLIP_BATTERY_H
 
+#include <stddef.h>
+
 /**
  * @brief Initialize battery monitoring
  *
@@ -25,6 +27,14 @@ int battery_init(void);
  * Call this when the user triggers a status bar display to get fresh readings.
  */
 void battery_poll(void);
+
+/* Queue a sample after an upload state transition; never blocks the caller. */
+void battery_request_poll(void);
+
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+/* Cached diagnostic snapshot only; does not perform I2C or update the gauge. */
+int battery_diag_format(char *response, size_t len);
+#endif
 
 /**
  * @brief Persist the nRF Fuel Gauge state to settings (LittleFS)

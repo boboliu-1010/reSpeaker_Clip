@@ -182,6 +182,14 @@ static bool is_valid_download_filename(const char *filename)
  * Exposes the NPM1300 voltage + NTC temperature that battery.c refreshes every
  * poll, alongside the SoC % and charging state. Useful for field/debug thermal
  * monitoring and verifying the 45C charge cutoff. */
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+static int cmd_battdiag_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
+{
+    ARG_UNUSED(ctx);
+    return battery_diag_format(response, len);
+}
+#endif
+
 static int cmd_batt_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
 {
     struct clip_context *c = clip_get_context();
@@ -1944,6 +1952,16 @@ int at_commands_register(void)
     };
     err = at_server_register_cmd(&batt_cmd);
     if (err) return err;
+
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+    static const struct at_command battdiag_cmd = {
+        .name = "BATTDIAG",
+        .flags = AT_CMD_QUERY | AT_CMD_EXEC,
+        .handler = cmd_battdiag_handler,
+    };
+    err = at_server_register_cmd(&battdiag_cmd);
+    if (err) return err;
+#endif
 
     /* STORAGE - SD card storage info (total/free/used MB, used %, recorded MB) */
     static const struct at_command storage_cmd = {

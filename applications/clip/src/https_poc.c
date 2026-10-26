@@ -35,6 +35,7 @@ BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_
 #include "upload_perf.h"
 #include "upload_command.h"
 #include "transfer.h"
+#include "battery.h"
 #ifdef CONFIG_CLIP_UPLOAD_APP
 #include "upload_app.h"
 #endif
@@ -256,6 +257,7 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
             ret = CLIP_EVENT_BUSY;
         } else {
             atomic_set(&active, 1);
+            battery_request_poll();
             /* Initialize in event order. Clearing after BEGIN returns could
              * erase a button cancellation arriving before the worker wakes. */
             atomic_clear(&cancelled); atomic_clear(&stalled);
@@ -273,6 +275,7 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
         }
     } else if (event == CLIP_EVENT_UPLOAD_END) {
         atomic_clear(&active);
+        battery_request_poll();
         upload_command_release_upload();
         if (https_poc_record_pending() && atomic_get(&cleanup_error)) {
             atomic_set(&record_error, atomic_get(&cleanup_error));

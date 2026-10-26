@@ -1,0 +1,110 @@
+diff --git a/mobile/app/macos/Runner/DebugProfile.entitlements b/mobile/app/macos/Runner/DebugProfile.entitlements
+index dddb8a3..3a01ede 100644
+--- a/mobile/app/macos/Runner/DebugProfile.entitlements
++++ b/mobile/app/macos/Runner/DebugProfile.entitlements
+@@ -8,5 +8,13 @@
+ 	<true/>
+ 	<key>com.apple.security.network.server</key>
+ 	<true/>
++	<key>com.apple.security.network.client</key>
++	<true/>
++	<key>com.apple.security.files.user-selected.read-write</key>
++	<true/>
++	<key>com.apple.security.device.audio-input</key>
++	<true/>
++	<key>com.apple.security.device.bluetooth</key>
++	<true/>
+ </dict>
+ </plist>
+diff --git a/mobile/app/macos/Runner/Info.plist b/mobile/app/macos/Runner/Info.plist
+index 4789daa..ced611e 100644
+--- a/mobile/app/macos/Runner/Info.plist
++++ b/mobile/app/macos/Runner/Info.plist
+@@ -28,5 +28,9 @@
+ 	<string>MainMenu</string>
+ 	<key>NSPrincipalClass</key>
+ 	<string>NSApplication</string>
++	<key>NSMicrophoneUsageDescription</key>
++	<string>使用麦克风录制音频，保存到本地并按你的设置备份。</string>
++	<key>NSBluetoothAlwaysUsageDescription</key>
++	<string>搜索并连接你的 reSpeaker Clip，查询设备状态和控制录音。</string>
+ </dict>
+ </plist>
+diff --git a/mobile/app/macos/Runner/Release.entitlements b/mobile/app/macos/Runner/Release.entitlements
+index 852fa1a..7684df6 100644
+--- a/mobile/app/macos/Runner/Release.entitlements
++++ b/mobile/app/macos/Runner/Release.entitlements
+@@ -4,5 +4,13 @@
+ <dict>
+ 	<key>com.apple.security.app-sandbox</key>
+ 	<true/>
++	<key>com.apple.security.network.client</key>
++	<true/>
++	<key>com.apple.security.files.user-selected.read-write</key>
++	<true/>
++	<key>com.apple.security.device.audio-input</key>
++	<true/>
++	<key>com.apple.security.device.bluetooth</key>
++	<true/>
+ </dict>
+ </plist>
+diff --git a/mobile/sdk/flutter/lib/src/at/at_command_redaction.dart b/mobile/sdk/flutter/lib/src/at/at_command_redaction.dart
+new file mode 100644
+index 0000000..44af99d
+--- /dev/null
++++ b/mobile/sdk/flutter/lib/src/at/at_command_redaction.dart
+@@ -0,0 +1,9 @@
++/// Never include Wi-Fi passwords or device credentials in errors or logs.
++String redactAtCommand(String command) {
++  final value = command.trim();
++  final upper = value.toUpperCase();
++  if (upper.startsWith('AT+NETCFG=') || upper.startsWith('AT+UPLOADCFG=')) {
++    return '${value.split('=').first}=<redacted>';
++  }
++  return value.length <= 48 ? value : '${value.substring(0, 48)}...';
++}
+diff --git a/mobile/sdk/flutter/lib/src/at/at_transport.dart b/mobile/sdk/flutter/lib/src/at/at_transport.dart
+index 1bc9314..cd60b90 100644
+--- a/mobile/sdk/flutter/lib/src/at/at_transport.dart
++++ b/mobile/sdk/flutter/lib/src/at/at_transport.dart
+@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+ import '../ble/mtu_manager.dart';
+ import '../utils/sdk_log.dart';
+ import 'json_object_framer.dart';
++import 'at_command_redaction.dart';
+ 
+ /// AT(JSON) protocol transport over BLE (GATT) for SenseCraft Voice Clip
+ /// devices.
+@@ -180,7 +181,7 @@ class AtTransport {
+         _logAtWriteTiming(atCommand, writeSw.elapsed, withoutResponse);
+         final replySw = Stopwatch()..start();
+         final reply = await completer.future.timeout(timeout, onTimeout: () {
+-          throw TimeoutException('AT command timeout: $atCommand', timeout);
++          throw TimeoutException('AT command timeout: ${redactAtCommand(atCommand)}', timeout);
+         });
+         _logAtReplyTiming(atCommand, replySw.elapsed);
+         return reply;
+@@ -226,9 +227,7 @@ class AtTransport {
+   }
+ 
+   static String _commandForLog(String atCommand) {
+-    final trimmed = atCommand.trim();
+-    if (trimmed.length <= 48) return trimmed;
+-    return '${trimmed.substring(0, 48)}...';
++    return redactAtCommand(atCommand);
+   }
+ 
+   static void _logAtWriteTiming(
+diff --git a/mobile/sdk/flutter/lib/src/ble/ble_client.dart b/mobile/sdk/flutter/lib/src/ble/ble_client.dart
+index faa6ea8..6abbaba 100644
+--- a/mobile/sdk/flutter/lib/src/ble/ble_client.dart
++++ b/mobile/sdk/flutter/lib/src/ble/ble_client.dart
+@@ -157,7 +157,7 @@ class SenseCraftVoiceClient {
+           .where((s) => s == BluetoothConnectionState.connected)
+           .first
+           .timeout(const Duration(seconds: 8));
+-      return _buildConnection(device);
++      return await _buildConnection(device);
+     } catch (e) {
+       SdkLog.w(
+         'SenseCraftVoiceClient.connectByDeviceId failed',

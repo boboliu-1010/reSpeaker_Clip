@@ -1,0 +1,42 @@
+{
+  "official_commit": "c6ffe47ee536bcf6da3c134d60bc68eb916bfde0",
+  "boa_commit": "ef6c08940e56c93e691cac1789e218b61bb2caa3",
+  "comparison_type": "static_source_diff_not_hardware_validation",
+  "checks": {
+    "mobile/sdk/flutter/lib/src/ble/ble_uuids.dart": {
+      "identical": true,
+      "official_sha256": "0be6143573fcaf8746f45a1dc196c2dbffc6c533d32f2520a5e084dceaf54398",
+      "boa_sha256": "0be6143573fcaf8746f45a1dc196c2dbffc6c533d32f2520a5e084dceaf54398"
+    },
+    "mobile/sdk/flutter/lib/src/ble/mtu_manager.dart": {
+      "identical": true,
+      "official_sha256": "00240c2dada4312c5091c2f6bef92160b23a297c3ea063afaea00f4eddbc10d6",
+      "boa_sha256": "00240c2dada4312c5091c2f6bef92160b23a297c3ea063afaea00f4eddbc10d6"
+    },
+    "mobile/sdk/flutter/lib/src/ble/ble_permissions.dart": {
+      "identical": true,
+      "official_sha256": "b1a8f9efb6cc867be4c8e093232739d9b21096df3dcd680adccf0e441ae4e9ee",
+      "boa_sha256": "b1a8f9efb6cc867be4c8e093232739d9b21096df3dcd680adccf0e441ae4e9ee"
+    },
+    "mobile/app/lib/src/features/device/presentation/device_controller.dart": {
+      "identical": true,
+      "official_sha256": "7d738f0a8d12f8716ad87875b8dbb715a5528e52f314ff68310f5ad4f0e259e4",
+      "boa_sha256": "7d738f0a8d12f8716ad87875b8dbb715a5528e52f314ff68310f5ad4f0e259e4"
+    },
+    "connect_from_scan": {
+      "identical": true,
+      "official_sha256": "12cdefa0c56e6290b5438db15ccd65e69e413a62123bef35fa6311653886c391",
+      "boa_sha256": "12cdefa0c56e6290b5438db15ccd65e69e413a62123bef35fa6311653886c391"
+    },
+    "gatt_setup": {
+      "identical": true,
+      "official_sha256": "8d81f7e43f59f05a6c04d1136678d12511ebbc2f459e3ea5f13a3d9793993cc3",
+      "boa_sha256": "8d81f7e43f59f05a6c04d1136678d12511ebbc2f459e3ea5f13a3d9793993cc3"
+    },
+    "notify_retry": {
+      "identical": true,
+      "official_sha256": "bc647b5e50efe95a6bf55be713478fdee30e8378a018e44a2d938c785eda36c8",
+      "boa_sha256": "bc647b5e50efe95a6bf55be713478fdee30e8378a018e44a2d938c785eda36c8"
+    }
+  }
+}

@@ -343,6 +343,15 @@ int main(int argc,char **argv){
  assert(argc==2);root=argv[1];assert(upload_scan(visit,&count,check)==0);
  assert(count==206&&sealed_count==205&&large==1&&!handles&&!files);
  count=sealed_count=large=0;
+ assert(upload_scan_session("20261020000000",visit,&count,check)==0);
+ assert(count==2&&sealed_count==2&&large==1&&!handles&&!files);
+ count=sealed_count=large=0;
+ assert(upload_scan_session("20261020000324",visit,&count,check)==0);
+ assert(count==1&&!sealed_count&&!handles&&!files);
+ assert(upload_scan_session(NULL,visit,&count,check)==-EINVAL);
+ assert(upload_scan_session("short",visit,&count,check)==-EINVAL);
+
+ count=sealed_count=large=0;
  assert(upload_scan_after(visit,&count,check,"20261020000320")==0);
  assert(count==5&&sealed_count==4&&!large&&!handles&&!files);
  count=sealed_count=large=0;cancel_at=30;

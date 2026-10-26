@@ -43,6 +43,10 @@ BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_
 #include "recording_hash.h"
 #include "upload_config.h"
 #include "upload_scan.h"
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+#include "upload_cleanup.h"
+static atomic_t delete_error;
+#endif
 #include "wifi_diag.h"
 #include "wifi_trace.h"
 #include "at_server.h"
@@ -182,6 +186,10 @@ void https_poc_app_status(struct upload_app_status *out)
     out->enabled = atomic_get(&app_enabled); out->paused = atomic_get(&auto_paused);
     out->sent = atomic_get(&bytes_sent); out->confirmed = atomic_get(&confirmed);
     out->size = atomic_get(&total_bytes); out->error = atomic_get(&last_error);
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    out->delete_after_upload = true;
+    out->delete_error = atomic_get(&delete_error);
+#endif
 #ifdef CONFIG_CLIP_DTLS_UPLOAD
     out->received = atomic_get(&datagram_received);
 #else
@@ -719,7 +727,13 @@ static int choose_visit(const char *id, uint32_t number, uint32_t size, bool sea
     int ret = upload_state_load(id, number, &record);
     if (ret && ret != -ENOENT && ret != -EBADMSG) { return ret; }
     if (!ret && record.state == UPLOAD_STORED && record.size == size &&
-        !memcmp(record.destination_sha256, selection->destination, 32)) { return 0; }
+        !memcmp(record.destination_sha256, selection->destination, 32)) {
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        if (!upload_cleanup_pending(id)) { return 0; }
+#else
+        return 0;
+#endif
+    }
     add_candidate(selection->first, &selection->first_count, id, number);
     if (compare_key(id, number, cursor_session, cursor_segment) > 0) {
         add_candidate(selection->after, &selection->after_count, id, number);
@@ -733,7 +747,10 @@ static void select_candidate(const struct candidate *next)
 }
 static bool next_auto_file(void)
 {
-    if (check_cancel() || !auto_batch || auto_batch->index >= auto_batch->first_count) { return false; }
+    if (check_cancel() || !auto_batch) { return false; }
+    while (auto_batch->index < auto_batch->first_count &&
+           !auto_batch->first[auto_batch->index].segment) { auto_batch->index++; }
+    if (auto_batch->index >= auto_batch->first_count) { return false; }
     select_candidate(&auto_batch->first[auto_batch->index++]);
     return true;
 }
@@ -776,6 +793,14 @@ static int begin_auto(void)
     /* Storage is claimed and settings cannot change while active. Let USB
      * status/off and recording cancellation run during the directory walk. */
     k_mutex_unlock(&control_lock);
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    if (!ret) {
+        int cleaned = upload_cleanup_resume(check_cancel);
+        atomic_set(&delete_error, cleaned);
+        /* A cleanup error must not prevent unrelated recordings uploading. */
+        ret = check_cancel();
+    }
+#endif
     if (!ret) { int found = refill_auto_batch(); ret = found < 0 ? found : 0; }
     k_mutex_lock(&control_lock, K_FOREVER);
     scan_error = ret;
@@ -1173,6 +1198,23 @@ static int upload_file(struct https_stream **stream)
     /* Snapshot completion before the next file resets counters and identity. */
     atomic_set(&last_error, ret);
     upload_app_publish(ret == -ECANCELED ? "file_cancelled" : ret ? "file_failed" : "file_complete");
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    if (!ret && state_ready && stamp.state == UPLOAD_STORED) {
+        int cleaned = upload_cleanup_session(session, stamp.destination_sha256, check_cancel);
+        atomic_set(&delete_error, cleaned < 0 ? cleaned : 0);
+        bool retired = cleaned > 0 || (cleaned < 0 && fs_stat(path, &entry) == -ENOENT);
+        if (retired && auto_batch) {
+            /* A resumed cleanup may have queued other segments of the same
+             * session. They no longer exist after the directory move. */
+            for (unsigned i=auto_batch->index;i<auto_batch->first_count;i++) {
+                if (!strcmp(auto_batch->first[i].session, session)) { auto_batch->first[i].segment=0; }
+            }
+        }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (cleaned) { upload_app_publish(cleaned > 0 ? "session_deleted" : "session_delete_failed"); }
+#endif
+    }
 #endif
     return ret;
 }
@@ -1623,6 +1665,12 @@ reply:
 #else
         "\"protocol\":2,"
 #endif
+/* Production auto-delete is independent of upload/transport failures. */
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        "\"delete_after_upload\":true,\"delete_error\":%d,"
+#else
+        "\"delete_after_upload\":false,\"delete_error\":0,"
+#endif
         "\"wifi_step\":\"%s\",\"tls_step\":\"%s\",\"wifi_ip\":\"%s\",\"wifi_netmask\":\"%s\",\"wifi_gateway\":\"%s\"}\n",
         ret ? "false" : "true", ret, names[atomic_get(&stage)],
         https_poc_active() ? "true" : "false", (int)atomic_get(&last_error), (int)atomic_get(&bytes_sent),
@@ -1630,6 +1678,9 @@ reply:
         (int)atomic_get(&state_error),
 #ifdef CONFIG_CLIP_DTLS_UPLOAD
         (int)atomic_get(&datagram_received),
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        (int)atomic_get(&delete_error),
 #endif
         wifi_station_last_step(), tls_steps[atomic_get(&tls_step)],
         network.ip, network.netmask, network.gateway);

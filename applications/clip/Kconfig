@@ -91,6 +91,17 @@ config CLIP_UPLOAD_APP
 	  Reuse the uploader for asynchronous Wi-Fi validation. Publish bounded,
 	  throttled events from the existing AT thread, never the DATA loop.
 
+config CLIP_UPLOAD_AUTODELETE
+	bool "Delete a complete recording after all segments are uploaded"
+	depends on CLIP_DTLS_UPLOAD
+	default y if !LOG_BACKEND_UART
+	default n
+	help
+	  Production defaults on; the default diagnostic build retains recordings.
+	  Only a successful upload can nominate a sealed session for deletion.
+	  Verify all segment journals before moving it to a private cleanup directory.
+	  Interrupted cleanup resumes there without sweeping historical recordings.
+
 config CLIP_HTTPS_PROFILE
 	bool "Passive upload phase timing via USB"
 	depends on CLIP_HTTPS_POC && CLIP_DEBUG_INTERFACES

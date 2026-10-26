@@ -8,7 +8,8 @@
 struct upload_app_status {
     const char *stage;
     uint32_t job, segment, sent, received, confirmed, size;
-    int error;
+    int error, delete_error;
+    bool delete_after_upload;
     bool active, automatic, enabled, paused, network_check;
     char session[15];
 };

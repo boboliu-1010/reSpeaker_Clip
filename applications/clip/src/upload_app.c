@@ -28,10 +28,12 @@ int upload_app_format_status(const struct upload_app_status *s, const char *type
     int tail = snprintf(out+n, size-n,
         "\"kind\":\"%s\",\"job\":%u,\"session\":\"%s\",\"segment\":%u,\"stage\":\"%s\","
         "\"active\":%s,\"automatic\":%s,\"enabled\":%s,\"paused\":%s,"
-        "\"sent\":%u,\"received\":%u,\"confirmed\":%u,\"size\":%u,\"last_error\":%d}%s\n",
+        "\"sent\":%u,\"received\":%u,\"confirmed\":%u,\"size\":%u,\"last_error\":%d,"
+        "\"delete_after_upload\":%s,\"delete_error\":%d}%s\n",
         s->network_check?"wifi_check":"upload", s->job, s->session, s->segment, s->stage, s->active?"true":"false",
         s->automatic?"true":"false", s->enabled?"true":"false", s->paused?"true":"false",
-        s->sent, s->received, s->confirmed, s->size, s->error, type?"":"}");
+        s->sent, s->received, s->confirmed, s->size, s->error,
+        s->delete_after_upload?"true":"false", s->delete_error, type?"":"}");
     return tail < 0 || (size_t)tail >= size-(size_t)n ? -ENOSPC : n+tail;
 }
 
@@ -78,7 +80,7 @@ void upload_app_resync(void) { atomic_set(&resync, 1); }
 
 static int send_event(const struct app_event *e)
 {
-    char body[448];
+    char body[512];
     int n = e->network ? upload_app_format_network(&e->value.wifi, true, e->seq,
         atomic_get(&lost), body, sizeof(body)) :
         upload_app_format_status(&e->value.upload, e->type, e->seq,

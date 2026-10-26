@@ -122,10 +122,12 @@ int main(void){
  send_failure=0;now=3000;upload_app_poll();assert(sends==7&&strstr(messages[6],"\"segment\":105,"));
  connected=0;now=3250;upload_app_poll();assert(!app_events.count&&!pending_valid);
  connected=1;upload_app_resync();status.segment=999;now=3500;upload_app_poll();assert(sends==9&&strstr(messages[8],"\"segment\":999,"));
- char small[20],query[448];assert(upload_app_format_status(&status,NULL,0,0,small,sizeof(small))==-ENOSPC);
+ char small[20],query[512];assert(upload_app_format_status(&status,NULL,0,0,small,sizeof(small))==-ENOSPC);
  assert(upload_app_format_status(&status,NULL,0,0,query,sizeof(query))>0&&!strstr(query,"\"event\""));puts(query);
  status.job=status.segment=status.sent=status.received=status.confirmed=status.size=UINT32_MAX;status.error=INT32_MIN;
  assert(upload_app_format_status(&status,"file_cancelled",UINT32_MAX,UINT32_MAX,query,sizeof(query))>0);puts(query);
+ status.delete_after_upload=true;status.delete_error=INT32_MIN;
+ assert(upload_app_format_status(&status,"session_delete_failed",UINT32_MAX,UINT32_MAX,query,sizeof(query))>0);puts(query);
  network.state="succeeded";strcpy(network.ip,"192.168.2.180");network.checked_ms=100;
  upload_app_publish_network(&network);now=3750;upload_app_poll();assert(sends==10&&strstr(messages[9],"wifi_dhcp")&&strstr(messages[9],"192.168.2.180"));
  for(int i=0;i<sends;i++)puts(messages[i]);return 0;

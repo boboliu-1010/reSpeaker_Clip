@@ -77,6 +77,15 @@ Saving does not validate the password by connecting, and the saved flag does not
 mean Wi-Fi is currently connected. A Wi-Fi configuration change during an
 active recording/upload returns busy; retry when idle.
 
+Production upload firmware defaults to deleting a **whole recording session**
+after every sealed segment has a matching complete upload journal and the final
+upload has succeeded. Default diagnostic builds retain recordings. `UPLOAD?`
+and upload notifications include `delete_after_upload` and `delete_error`;
+`session_deleted` / `session_delete_failed` are upload event types. A cleanup
+failure is separate from a successful upload. Deleted sessions disappear from
+the device list; App cloud listing is a separate integration. See
+[deletion and recovery](dtls-upload-core.md#automatic-deletion-after-upload).
+
 ### BLE network validation and automatic upload control
 
 With `CLIP_UPLOAD_APP` enabled (default for the full upload build with Bluetooth),

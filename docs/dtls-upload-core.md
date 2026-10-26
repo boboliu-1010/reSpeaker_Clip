@@ -19,9 +19,41 @@ Loss reduces the congestion window; adaptive retransmission starts at a minimum
 of 1 second and backs off to at most 8 seconds.
 
 This iteration retains the existing configuration format, automatic queue and
-recording priority. It adds no charging policy, periodic reconciliation, App
-integration or automatic deletion. The broader deferred implementation is saved
+recording priority. Production defaults to whole-session deletion after upload
+confirmation (see below). Charging policy, periodic reconciliation and App/cloud
+UI integration remain outside this firmware feature. The broader deferred implementation is saved
 on `archive/dtls-auto-upload-wip-0.1.2`.
+
+## Automatic deletion after upload
+
+`CONFIG_CLIP_UPLOAD_AUTODELETE` defaults on with the baseline production
+configuration (UART logging off), and off in the default diagnostic build. It
+can be disabled explicitly at build time. No App code is changed.
+
+A successful COMPLETE response, successful file close and durable upload journal
+save nominate only that recording session. The uploader scans its canonical
+sealed segments and requires all expected contiguous segment numbers, matching
+session count/bytes, and valid complete journals bound to the current receiver.
+It never deletes a partial recording or sweeps unrelated historical uploaded
+sessions merely because their old journals say uploaded.
+
+A CRC-protected deletion intent is synced and closed before moving the whole
+session from REC into `/SD:/UPDEL/<session>`. This avoids exposing missing middle
+segments in the device recording list. Physical removal checks recording-priority
+cancellation between operations; interrupted cleanup resumes from valid staged
+intents during later automatic scheduling. A failed move can be retried using
+its intent in REC. Invalid or corrupt staged intents retain data for inspection.
+The last-marker/empty-directory case is also recoverable. These are software
+recovery guarantees, not guarantees against FAT media corruption or arbitrary
+power loss during filesystem metadata writes.
+
+`UPLOAD?` and BLE upload events add `delete_after_upload` and `delete_error`.
+`session_deleted` reports completed cleanup; `session_delete_failed` reports a
+separate cleanup error, without changing successful file-upload status. Whole
+session deletion removes its audio and sidecars; its old local LIST/UPLOADSTATE
+entries are gone. The server copy remains, and cloud listing/playback needs App
+and server integration. The feature does not implement periodic reconciliation
+or protect against the server losing data after acknowledging durable completion.
 
 ## Receipts and recovery
 

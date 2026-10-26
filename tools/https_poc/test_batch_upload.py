@@ -218,6 +218,28 @@ static void clip_cpu_boost_release(void){assert(boosts==1);boosts--;}
         for mode in [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
             with self.subTest(mode=mode):
                 compile_run(code, [str(mode)])
+        # Deletion is entered only after COMPLETE, close and journal success.
+        # Its own I/O error must not change a successful upload into a retry.
+        cleanup_adapter = r"""
+#define CONFIG_CLIP_UPLOAD_AUTODELETE 1
+static int delete_error,delete_calls;
+static struct {
+ unsigned index,first_count;
+ struct {char session[15];uint32_t segment;} first[8];
+} *auto_batch;
+static int upload_cleanup_session(const char*id,const uint8_t dest[32],int(*cancel)(void)){
+ assert(!strcmp(id,session)&&dest[0]==0xbb&&!cancel()&&!file.open);
+ assert(stored>0&&confirmed==(int)file_length);delete_calls++;return -EIO;
+}
+"""
+        cleanup_code = code.replace('static int upload_file(', cleanup_adapter+'\nstatic int upload_file(', 1)
+        cleanup_code = cleanup_code.replace('assert(connections==disconnects);return 0;',
+            'assert(connections==disconnects);assert(delete_calls==(mode==REUSE?3:mode==METADATA?1:0));'
+            'if(delete_calls)assert(delete_error==-EIO);return 0;')
+        for mode in (0,5,6,7):
+            with self.subTest(auto_delete_mode=mode):
+                compile_run(cleanup_code,[str(mode)])
+
         # Exercise the actual upload decision: recording cache hit avoids data
         # reads; missing/corrupt/I/O-failed cache falls back, save failure is optional.
         for error in (0, '-ENOENT', '-EBADMSG', '-EIO'):

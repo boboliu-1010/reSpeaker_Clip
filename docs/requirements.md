@@ -1,5 +1,7 @@
 # reSpeaker Clip - Product Requirements Document
 
+> 原始产品需求与验收目标；不代表当前上传分支已实现全部功能。当前实现范围见 [architecture.md](architecture.md) 和 [DTLS上传](dtls-upload-core.md)。
+
 ## 1. Product Overview
 
 ### 1.1 Product Vision

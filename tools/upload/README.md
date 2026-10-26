@@ -60,4 +60,4 @@ python3 -m unittest discover -s tools/upload/tests -p 'test_dtls_receiver.py' -v
 
 原 `tools/https_poc/`、HTTPS 流和 TCP 调优实验可从历史提交 `7e7ab97` 查看。
 当前 DTLS 方案见 [上传说明](../../docs/dtls-upload-core.md)，网络修复见
-[DHCP／ARP 回移说明](../../docs/network-backports-0.1.2.md)。
+[DHCP／ARP 回移说明](../../docs/network.md)。

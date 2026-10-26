@@ -168,16 +168,17 @@ See [docs/README.md](docs/README.md) for the full documentation map.
 |-----|-------------|
 | [architecture.md](docs/architecture.md) | System architecture & design |
 | [protocol.md](docs/protocol.md) | BLE AT command protocol specification |
-| [udp_protocol.md](docs/udp_protocol.md) | WiFi UDP file transfer protocol |
+| [DTLS upload](docs/dtls-upload-core.md) | Automatic recording upload and recovery |
 | [requirements.md](docs/requirements.md) | Product requirements |
-| [custom_app_guide.md](docs/custom_app_guide.md) | **Custom app development guide** — build, flash, BLE OTA, USB serial DFU recovery |
-| [usb_dfu.md](docs/usb_dfu.md) | Firmware upgrade guide (USB / BLE / programmer) |
+| [development.md](docs/development.md) | Upload build modes, verification, resources and branches |
+| [usb_dfu.md](docs/usb_dfu.md) | USB recovery, signing and programmer reference |
 | [release_process.md](docs/release_process.md) | Releasing — tagging, CI, artifacts |
 | [audio_quality_standard.md](docs/audio_quality_standard.md) | Audio recording quality standard |
-| [development.md](docs/development.md) | Development log |
+| [server](server/README.md) | DTLS/UDP recording receiver |
 
-Release artifacts (debug + production images, OTA zips) for every version are on
+Upstream baseline release artifacts are on
 the [GitHub Releases page](https://github.com/Seeed-Studio/reSpeaker_Clip/releases).
+For this branch's DTLS upload build and release boundaries, use [development](docs/development.md) and [release preparation](docs/release_process.md).
 
 See [CLAUDE.md](CLAUDE.md) for detailed build/flash/power-management guidance
 and known pitfalls.

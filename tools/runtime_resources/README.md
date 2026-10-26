@@ -73,8 +73,9 @@ AP startup has a 60-second response timeout. If any timeout disconnects BLE,
 automatic cleanup cannot run: reconnect and explicitly check/stop recording
 and the AP before starting another test. A timed-out command may have succeeded.
 
-Device measurements and the observed AP-start failure after enhanced recording
-are documented in `docs/runtime-resources-0.1.2-results.md`.
+Current DTLS build resources and measurement boundaries are documented in
+[development](../../docs/development.md#当前资源基准). The AP experiments below
+require a separate AP-capable build and do not describe the maintained DTLS preset.
 
 For controlled AP-start diagnosis on the same image:
 

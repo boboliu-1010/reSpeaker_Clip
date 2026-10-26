@@ -1,113 +1,45 @@
-# Experimental nRF7002 patch storage on external SPI flash
+# 外置 Flash 布局与 Wi-Fi 补丁
 
-This branch tests the NCS external-flash STORE loader on Clip. It is not an
-ordinary device upgrade: the new layout shrinks LittleFS and requires a
-separately provisioned Wi-Fi patch. No device has been flashed or tested yet.
+当前上传固件使用外置 SPI NOR 存放 nRF7002 固件补丁，减少应用内部 Flash 占用。
+应用启动时分块读取并加载到 Wi-Fi 芯片；这不是外置 Flash XIP，也不把整份补丁常驻在应用RAM。
 
-## Build results (2026-09-20)
+## 当前布局
 
-Base: `d508d21e0c5c872bff3886cb27e7807826ceb90b`, NCS 3.3.0,
-Zephyr SDK 0.17.0, Production snippet. The complete sysbuild succeeded.
+板级分区定义为 [`pm_static_clip_nrf5340_cpuapp.yml`](../boards/seeed/clip/pm_static_clip_nrf5340_cpuapp.yml)。
+外置 NOR 总计8 MiB，地址为该设备内偏移：
 
-| Application resource | Baseline | Experiment |
-|---|---:|---:|
-| Flash used | 930,708 B | 844,044 B |
-| Flash remaining | 2,668 B | 89,332 B |
-| RAM statically reserved | 430,930 B | 430,914 B |
+| 范围（末端不含） | 用途 |
+|---|---|
+| `0x000000..0x0f0000` | 应用核 OTA secondary slot |
+| `0x0f0000..0x130000` | 网络核 OTA secondary slot |
+| `0x130000..0x7e0000` | LittleFS，大小 `0x6b0000`，107个64 KiB块 |
+| `0x7e0000..0x800000` | 独立 Wi-Fi 补丁，128 KiB |
 
-Net internal Flash savings: **86,664 B (84.63 KiB)**. Remaining application
-Flash: **87.24 KiB**. Static RAM changes by only -16 B; temporary loader heap
-usage is not included in that delta. The configured system heap remains 80 KiB.
+SD上的录音不在此Flash。LittleFS保存设备settings，包括配网、接收端和上传开关。
+构建选择 `SB_CONFIG_WIFI_PATCHES_EXT_FLASH_STORE=y`，保留 SDK 补丁完整性校验，
+读取块大小2048 B。SPI NOR与Wi-Fi接口不同，不能把生成HEX的逻辑地址当作可直接烧写的SPI偏移。
 
-Read-only checks passed for final configuration, unchanged application/OTA
-region sizes, external partition bounds and alignment, absence of embedded
-`fw_patch`, and inclusion of the SDK loader object. LTO inlines loader functions,
-so checks use the map and configuration as well as ELF symbols.
+## 普通升级和首次迁移
 
-The generated patch HEX matches the raw SDK binary byte-for-byte (87,046 B),
-SHA-256 `6353a2d07319337a5aaa75af03f2303756496eda0e2bea53ef47bc2148f64e7f`.
-Its generated address starts at **0x107e0000**, not the SPI device offset
-0x7e0000. This artifact does not prove a flash tool can program Clip's SPI3 NOR.
-The DFU ZIP contains only `clip.signed.bin`, `ipc_radio.bin` and `manifest.json`;
-it does not contain the separately provisioned patch.
+已经使用该布局的设备，应用升级需继续保留匹配的补丁、文件系统几何和签名约束。
+正常应用SMP升级包不自动写这份补丁；不能仅凭DFU成功认定新设备已完成布局迁移。
 
-Reproduce build checks in the NCS Python environment:
+原厂旧布局的LittleFS曾延伸到外置Flash末端。首次迁移必须独立完成：
 
-```sh
-python /home/ubuntu/firmware/reSpeaker_Clip/scripts/verify_external_wifi_patch.py \
-  /home/ubuntu/firmware/ncs/build-clip-prod \
-  /home/ubuntu/firmware/ncs/build-clip-ext-patch \
-  /home/ubuntu/firmware/ncs/nrfxlib/nrf_wifi/bin/ncs/default/nrf70.bin
-```
+1. 读取并验证完整备份，确认当前设备、分区和补丁版本。
+2. 离线重建缩小后的LittleFS，校验目录、文件、属性及配置；不能只改分区长度。
+3. 使用受控维护程序写入新的文件系统和匹配的原始SDK补丁，再完整回读校验。
+4. 验证冷启动、Wi-Fi启动／关闭、录音与设置恢复；保留能恢复原布局的备份。
 
-The verifier also requires `intelhex`, available in the NCS environment.
+维护程序在 [`applications/flash_maintenance/`](../applications/flash_maintenance/)，它不是正常
+录音固件。此页不是直接执行擦写的命令清单，首次迁移需按设备实际备份和恢复方案执行。
+回刷旧应用不会自动恢复旧文件系统布局。
 
-## Configuration
+## 构建校验
 
-- `applications/clip/sysbuild.conf` selects
-  `SB_CONFIG_WIFI_PATCHES_EXT_FLASH_STORE=y`.
-- NCS otherwise assumes external patches have a third MCUboot update slot.
-  The board-local `CLIP_WIFI_PATCH_FACTORY_ONLY` experiment overrides that
-  default and excludes the patch from the DFU ZIP, preserving the existing
-  two-image bootloader. Patch DFU must not be enabled in this configuration.
-- The application uses 2048-byte patch reads and retains SDK SHA-256 integrity
-  checking. The SDK reads from the flash area into a temporary heap buffer and
-  downloads each chunk to nRF7002; it does not retain the entire patch in the
-  application core's RAM.
-- The board's Partition Manager YAML and DTS reserve `0x7e0000..0x800000` for
-  `nrf70_wifi_fw` (128 KiB). LittleFS remains at `0x130000`, but its size changes
-  from `0x6d0000` to `0x6b0000`. Both existing OTA slots retain their addresses
-  and sizes. Internal partitions are not intentionally changed.
-- Clip's storage flash uses SPI3, while nRF7002 uses QSPI. STORE is selected;
-  this experiment does not enable external-flash XIP.
+使用 [`scripts/verify_external_wifi_patch.py`](../scripts/verify_external_wifi_patch.py) 比较基线
+与候选构建、原始 `nrf70.bin`。脚本检查配置传播、分区边界、HEX／补丁内容和镜像一致性；
+依赖NCS环境的pyelftools、PyYAML、intelhex。参数以脚本 `--help` 为准。
 
-## Build on the existing Ubuntu server
-
-```sh
-source /home/ubuntu/firmware/.venv/bin/activate
-export ZEPHYR_SDK_INSTALL_DIR=/home/ubuntu/firmware/zephyr-sdk-0.17.0
-export ZEPHYR_EXTRA_MODULES=/home/ubuntu/firmware/reSpeaker_Clip
-cd /home/ubuntu/firmware/ncs
-west build --sysbuild -b clip/nrf5340/cpuapp \
-  /home/ubuntu/firmware/reSpeaker_Clip/applications/clip \
-  -d build-clip-ext-patch -S production -- \
-  -DSNIPPET_ROOT=/home/ubuntu/firmware/reSpeaker_Clip/applications/clip
-```
-
-Keep `build-clip-prod` as the unmodified comparison artifact. Record the source
-base commit and the experimental diff alongside the new ELF, map, final
-configuration, partitions and build log. Compare actual linked Flash/RAM usage,
-not ELF file size or just the removed patch symbol.
-
-## Provisioning and upgrade boundary
-
-Before any hardware trial:
-
-1. Back up existing device configuration. Shrinking a mounted LittleFS without
-   migration/recreation can expose its existing data to patch writes; changing
-   the partition definition alone does not resize its on-disk filesystem.
-2. Check the generated partition table and the selected SDK patch mode. Retain
-   the matching raw SDK `nrf70.bin`, with its original header and integrity hash.
-3. Implement or validate a writer that accesses Clip's actual SPI NOR driver
-   and writes the raw patch to the dedicated partition, then reads it back and
-   verifies it. A normal application-only USB update does not provision it.
-4. Do not assume Nordic's generated external HEX is directly flashable on Clip.
-   Its logical address and the flash tool's access to ordinary SPI3 NOR must be
-   checked separately; QSPI address mapping does not establish that access.
-5. Only after filesystem migration and patch provisioning, test cold boot,
-   repeated Wi-Fi start/stop and file transfer. Check behavior for absent or
-   corrupt patch data, including successful local recording when Wi-Fi fails.
-
-This branch does not add patch DFU slots, increase MCUboot's image count, change
-bootloader keys, or implement automatic filesystem migration. A product update
-needs explicit patch/application compatibility and interrupted-update recovery.
-Rollback to a prior firmware also needs to account for the changed filesystem
-geometry; do not assume reflashing the old application restores that geometry.
-
-## Validation limits
-
-Build verification can establish configuration propagation, partition bounds,
-artifact consistency, symbol removal and linked resource savings. Actual SPI
-reads, provisioning, Wi-Fi startup, runtime heap peaks and power consumption
-require a device. No firmware should be described as hardware-validated based
-only on these build checks.
+当前布局已在项目设备使用。构建校验仍不代替新设备的实际SPI读写、首次迁移、补丁异常
+或中断恢复测试。发布包与回退包需分别记录所要求的布局和补丁身份。

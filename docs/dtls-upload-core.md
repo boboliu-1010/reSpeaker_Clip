@@ -1,233 +1,133 @@
-# DTLS recording upload core
+# 录音主动上传
 
-This opt-in full-application build replaces the recording upload transport with
-DTLS 1.2 over UDP. Audio, buttons, display and BLE remain in the application.
-It is separate from `experiment/upload-bench-0.1.2`, which intentionally removes
-product features for transport experiments.
+当前完整录音固件采用私有可靠文件上传协议＋DTLS 1.2＋UDP。App 通过加密 BLE 配网、
+控制和接收通知；录音文件由 Clip 直接发给服务器。固件和服务端均已移除旧 HTTPS 上传路径。
 
-## Scope
+接口定义见 [protocol.md](protocol.md)，接收服务见 [server/](../server/README.md)，
+构建和诊断入口见 [tools/upload/](../tools/upload/README.md)。
 
-The performance path is SD → bounded read cache → 1 KiB application packets →
-one DTLS connection → receiver file. Upload jobs acquire the existing 128 MHz
-CPU boost and release it during cleanup. The connection is reused across files.
+## 自动调度
 
-The base overlay starts with16 packets and grows to64. The measured candidate
-starts at128 with a128-packet ceiling. These are logical outstanding packets:
-RAM holds128 retransmission records, not128KiB of file data. Missing payload is reread from SD. Selective receipts
-permit continuous sending without waiting for an HTTP response per chunk.
-Loss reduces the congestion window; adaptive retransmission starts at a minimum
-of 1 second and backs off to at most 8 seconds.
+Wi-Fi、接收端身份和自动上传开关先持久保存再生效。重启后恢复配置，不要求 App 保持
+连接。当前只保存一组 2.4 GHz WPA2 Wi-Fi，不支持多组网络自动选择。
 
-This iteration retains the existing configuration format, automatic queue and
-recording priority. Production defaults to whole-session deletion after upload
-confirmation (see below). Charging policy, periodic reconciliation and App/cloud
-UI integration remain outside this firmware feature. The broader deferred implementation is saved
-on `archive/dtls-auto-upload-wip-0.1.2`.
+上传需要配置完整、开关开启、设备空闲且没有录音或其他冲突操作。调度先扫描已封口、
+非空、规范路径且不超过 8 MiB 的片段；元数据无效、仍写入的片段不进入自动队列。
+已向当前目标完整上传且长度匹配的文件跳过。手机同步计数不参与该判断。
+
+候选按会话 ID、片段编号递增，通常先旧录音，再同段的 `0001.opus`、`0002.opus`。
+扫描每次只保存最多 8 个候选，文件串行处理；8 个是 RAM 中候选窗口，不是任务总量
+上限。耗尽后继续扫描和上传，复用 Wi-Fi 与同一个 DTLS 连接，直到无待传文件。
+候选和游标仅在 RAM；失败后从上次尝试位置继续轮转，避免一个坏文件长期阻挡其他文件。
+重启后依据持久状态重新发现待传内容，不保证异常后始终严格最旧优先。
+
+| 触发条件 | 调度行为 |
+|---|---|
+| 开机加载完成 | 约10秒后开始检查；设备忙时等待 |
+| 录音 START／STOP 等活动 | 留出约5秒空闲窗口再检查 |
+| 批内一个片段完成 | 立即处理下一个，不重新等待5秒 |
+| 队列为空 | 约5分钟复查；新录音结束可提前触发 |
+| 扫描 I/O 错误 | 约30秒后复查 |
+| 连续上传失败 | 20、40、80、160、300秒退避，之后上限5分钟；成功清零 |
+| 录音抢占 | 取消本轮，不计作网络失败 |
+
+任务完成、失败或取消都走连接和 Wi-Fi 关闭、文件／状态清理、缓冲释放及 CPU 提频释放。
+关闭失败会记录错误。自动上传开关仍开启时，后续按调度规则重新尝试。
+
+## 协议流程
+
+1. 取得封口文件和内容 SHA-256，写入任务开始状态。
+2. 必要时连接 Wi-Fi、获取地址并校时，建立校验证书的 DTLS 连接。
+3. 发送 OPEN：设备凭据、会话、片段号、总长度、SHA-256 和本次传输随机标识。
+4. 服务器核对身份，返回其持久偏移；设备以此续传，不直接相信本地旧偏移。
+5. 连续发送 DATA，接收连续字节进度、选择性位图和持久偏移，按窗口和重传规则继续。
+6. 服务器校验完整文件长度和 SHA-256，发布最终文件后返回 COMPLETE。
+7. 设备验证完成回执，关闭文件并成功保存本地完成状态；production 再判断整段删除。
+
+`sent`、`received`、`confirmed` 不同：发送或接收信用只推进数据窗口；`confirmed`
+是服务器持久检查点。只有身份和长度等校验通过的 COMPLETE 才表示完整上传。
+服务器通常在64 KiB或500毫秒连续进展后同步数据并原子发布检查点，QUERY 强制保存。
+异常恢复可能重发尚未持久确认的尾部；重复数据必须匹配，不能静默替换同一录音。
+
+Wi-Fi、认证、协议、存储和超时错误可以提前结束一轮。部分复用连接的传输错误允许
+重连一次再查询服务器偏移，协议或身份校验失败不会当成普通传输重试。
+DTLS 握手的重传等待参数为1至8秒，另有约15秒握手等待预算；8秒不是握手总超时。
+持续无进展和每片段工作预算也会终止任务，取消检查贯穿有界网络等待。
+
+## 录音优先与恢复
+
+上传与录音串行。上传期间 START 排队一个录音请求，返回 `pending:true`，然后取消上传。
+必须等句柄、元数据和网络安全清理后才开始录音；App 依据真实录音状态获取会话 ID。
+多次 START 不累计多个请求；STOP 可取消待启动请求。清理故障通过 `record_error` 报告。
+
+取消、断网和重启后，下一次连接仍先查询服务器持久偏移。服务器重启后应保留相同
+数据目录、身份记录和检查点。硬复位恢复不等于真实电池断电，也不证明 FAT 介质不会损坏。
+
+## 本地状态与内容哈希
+
+三类信息分别负责不同用途：
+
+| 记录 | 用途 |
+|---|---|
+| `session.json` 的 `synced` | 原手机同步进度，主动上传不改写它 |
+| `http-N.a/b` | 对当前服务器的上传状态、内容身份和最近结果 |
+| `sha-N` | 封口片段的可丢弃内容哈希缓存，不含上传偏移或服务器凭据 |
+
+`http-N.a/b` 是每片段两个96字节记录槽，包含版本、该片段递增的 generation、状态、
+长度、确认偏移、错误、内容和目标 SHA-256 及 CRC32。更新保留最新有效槽，写另一个
+槽并同步、关闭；读取校验后选最新有效 generation。一槽破损可退回另一槽，两槽都坏
+时不能报告 uploaded。CRC 和双槽不防恶意篡改，也不保证目录或物理介质掉电安全。
+
+目标指纹覆盖 host、port、设备 ID、协议身份 `dtls-upload-v3` 和内置 CA；不包含 Wi-Fi
+密码或设备令牌。切换目标可能让旧文件重新待传；只轮换令牌不会改变目标指纹。
+本地状态为 pending、partial、uploaded 或 failed；部分进度优先表现为 partial。
+
+录音写入时对成功写入的原始封装字节累计 SHA-256，完成刷盘和关闭后才发布 `sha-N`。
+该68字节记录包含片段身份、大小、摘要和 CRC，不修改音频内容、不增加线程。
+上传优先复用匹配的上传日志摘要，再尝试 `sha-N`，缓存缺失或无效时读完整文件重算。
+重算可为旧录音补建缓存，缓存写失败不覆盖必需的数据／状态错误。服务器始终做最终
+整文件校验。该策略依赖封口录音不可变；不应离线改写文件后继续信任旧缓存。
+
+保留 `http-N.a/b` 和 settings 的 `https/config` 名称，是为了兼容已部署设备；它们不是
+仍保留 HTTPS 网络路径。Wi-Fi／接收端配置在外置 Flash 的 LittleFS，录音和片段记录在 SD。
 
 ## Automatic deletion after upload
 
-`CONFIG_CLIP_UPLOAD_AUTODELETE` defaults on with the baseline production
-configuration (UART logging off), and off in the default diagnostic build. It
-can be disabled explicitly at build time. No App code is changed.
+`CONFIG_CLIP_UPLOAD_AUTODELETE` 在 production 默认开启，默认诊断版关闭，由构建配置
+控制。只有最后上传成功、文件安全关闭、状态持久化成功的会话，才有资格触发整段清理。
+清理核对所有预期连续片段、会话计数／大小、当前目标和完整上传日志；不逐个删除中间
+片段，不因为历史日志显示 uploaded 就扫描删除无关会话。
 
-A successful COMPLETE response, successful file close and durable upload journal
-save nominate only that recording session. The uploader scans its canonical
-sealed segments and requires all expected contiguous segment numbers, matching
-session count/bytes, and valid complete journals bound to the current receiver.
-It never deletes a partial recording or sweeps unrelated historical uploaded
-sessions merely because their old journals say uploaded.
+先保存带 CRC 的删除意图，再把整段移入 `/SD:/UPDEL/<session>`，随后物理删除。
+中断后可恢复有效清理意图；异常或损坏意图保留供检查。期间仍响应录音优先取消。
+删除失败独立报 `delete_error`，不把已成功上传改成失败；通知为 `session_deleted` 或
+`session_delete_failed`。删除后设备 LIST 中不再出现录音，云端列表／播放需 App 与服务器另做集成。
 
-A CRC-protected deletion intent is synced and closed before moving the whole
-session from REC into `/SD:/UPDEL/<session>`. This avoids exposing missing middle
-segments in the device recording list. Physical removal checks recording-priority
-cancellation between operations; interrupted cleanup resumes from valid staged
-intents during later automatic scheduling. A failed move can be retried using
-its intent in REC. Invalid or corrupt staged intents retain data for inspection.
-The last-marker/empty-directory case is also recoverable. These are software
-recovery guarantees, not guarantees against FAT media corruption or arbitrary
-power loss during filesystem metadata writes.
+本地 uploaded 只证明此前收到完整确认。当前没有周期对账，无法自动发现服务器在确认
+后丢失数据；自动删除也不代替服务器备份和保留策略。
 
-`UPLOAD?` and BLE upload events add `delete_after_upload` and `delete_error`.
-`session_deleted` reports completed cleanup; `session_delete_failed` reports a
-separate cleanup error, without changing successful file-upload status. Whole
-session deletion removes its audio and sidecars; its old local LIST/UPLOADSTATE
-entries are gone. The server copy remains, and cloud listing/playback needs App
-and server integration. The feature does not implement periodic reconciliation
-or protect against the server losing data after acknowledging durable completion.
+## 安全边界
 
-## Receipts and recovery
+DTLS 通道强制校验服务器证书链、有效期和配置地址，设备凭据在加密 OPEN 中验证。
+目前使用设备令牌，而不是每设备客户端证书。可信 CA 与固件签名密钥是不同用途。
+App 配网／业务命令依赖既有加密 BLE 与绑定策略；保存到 LittleFS 不等于加密存储或安全元件。
 
-Each transfer opens with device credentials, recording session/segment, length,
-SHA256 and a random transfer nonce, inside a certificate-verified DTLS channel.
-The server returns its durable offset. A new connection resumes there.
+联网校时沿用 SNTP，获取失败则退避，不跳过证书校验。SNTP 自身无认证，不能称为
+可信签名时间服务。设备注册、密钥安全下发／轮换和生产级服务器运维仍需专项设计。
 
-Receipts distinguish received contiguous bytes, selective future packets, and
-bytes durably checkpointed to disk. Received credit frees the sending window;
-it never marks a recording uploaded. The server syncs file data before atomically
-publishing a checkpoint, after 64 KiB or 500 ms of contiguous progress. QUERY
-forces a checkpoint. A crash may require retransmitting the volatile tail.
+## 当前配置与诊断
 
-The server verifies the entire file SHA256 and publishes the final file before
-sending COMPLETE. Only a valid identity-bound COMPLETE marks the local A/B
-upload record stored. Duplicate completion queries are idempotent. Recording
-cancellation closes the session; a later attempt asks the server for its offset.
+默认版与 production 均使用单 DTLS 连接、128包初始／上限窗口、1 KiB DATA、同步8 KiB
+读缓存、80 KiB应用堆、24 KiB发送池、硬件GCM和128 MHz上传提频。窗口只保留重传元数据，
+不在 RAM 保留128 KiB载荷副本。读缓存、哈希缓存和协议窗口是不同层次。
 
-## Build and operate
+默认版可用 `UPLOADNET?` 查看最近完成文件的包数、重传、RTT／RTO、窗口及进度，
+`UPLOADPERF` 获取分阶段时间。当前正在发送的片段不能冒充已完成快照。源码读卡时间嵌套
+于 source 时间，窗口等待嵌套于 poll 时间，不能重复相加。production 关闭开发诊断。
 
-Use `--preset dtls-single --production` for the maintained configuration:80KiB application
-heap, direct DTLS over UDP, hardware GCM,128-packet window and8KiB synchronous
-read-ahead. Files upload serially over one reused DTLS connection. The active
-source no longer contains the dual-channel, file-multiplexing or asynchronous
-SD producer experiments; their source and results remain in local archives.
-Recording hash caches, final server SHA256 verification, cancellation/resume,
-automatic queueing and completed DATA timing snapshots remain supported.
+性能选型样本曾测得 DATA 平均335.23 KiB/s，该数字排除扫描、联网、握手和文件间准备，
+不代表任意网络或整任务速率。清理版 `112ad51` 已完成主机与构建检查，尚未据此建立
+新的实机吞吐或长期稳定性结论。验证记录和完整产物留在本地，不提交录音或镜像到仓库。
 
-An App may provision and persist the Station Wi-Fi over the encrypted BLE
-command characteristic with `AT+NETCFG=ssid,password`. A successful BLE reply
-contains `data.saved:true`; boot restores the same record automatically. The
-receiver enrollment is also available over encrypted BLE with `CLIP_UPLOAD_APP`. BLE `NETCHECK` validates association/DHCP;
-`UPLOADAUTO` persists the automatic-upload switch and `UPLOAD?` queries progress.
-The existing response characteristic publishes throttled status and terminal
-events without sending BLE messages from the DATA loop. See the
-[BLE provisioning contract](protocol.md#station-wi-fi-provisioning-in-the-upload-build).
-
-The helper selects `applications/clip/dtls.conf` when the ordered overlays
-enable `CLIP_DTLS_UPLOAD`. DTLS uses direct mbedTLS over UDP: TCP and Zephyr's
-TLS socket wrapper are disabled. Certificate verification, DTLS encryption,
-Wi-Fi crypto and time synchronization remain enabled. HTTPS-only builds keep
-`https.conf`. The optimized DTLS preset no longer includes the TCP connection
-budget overlay. Its network recovery overlay enables DHCP remembered-lease
-reuse with the pinned DHCP fixes and retains the ARP fixes; one unanswered
-INIT-REBOOT probe falls back to discovery. Combined hardware recovery validation
-is still required; see [network backports](network-backports-0.1.2.md).
-Transport cleanup leaves TLS buffers unchanged; `dtls-single`
-explicitly reserves an80KiB heap.
-The maintained preset restores baseline HT receive STBC
-(`CONFIG_NRF_WIFI_RX_STBC_HT=y`) and no longer includes the historical
-`https-wifi-no-stbc.conf` comparison overlay. Station power policy remains
-unchanged. This enables reception capability, not a measured throughput gain;
-AP support and negotiated use still determine whether STBC is used on the link.
-
-For the maintained configuration, run the helper with `--preset dtls-single --production`:
-
-```sh
-python tools/upload/build.py \
-  --ncs /path/to/ncs --sdk /path/to/zephyr-sdk \
-  --build /path/to/ncs/build-clip-dtls-candidate \
-  --ca /path/to/public-test-ca.pem --preset dtls-single --production
-```
-
-There are only two build modes, matching the baseline. Without `--production`,
-the helper uses the default build with UART logging, developer interfaces and
-preset diagnostics. With `--production`, it uses the existing `production`
-snippet, closes UART logging and defaults developer interfaces off; preset
-diagnostics are omitted. `dtls-single` selects the upload feature set, not a
-third build mode; `dtls-optimized` remains its compatibility alias. Direct west
-builds also derive the developer-interface default from `LOG_BACKEND_UART`,
-just as the baseline does for the SD-log default. No app-only Kconfig symbols
-are added to the shared production snippet. Functional ARP fixes remain enabled
-independently of diagnostics. Both modes retain the full recording application. It enables CryptoCell AEAD, initial/maximum
-windows128/128, and8192-byte DATA read-ahead on every boot. Hashing retains its
-4KiB buffer; DATA allocates an additional8KiB per file and frees it on all
-transfer exits. The window/cache defaults also work with timing disabled.
-The SDK groups CCM and GCM under its AEAD switch; other PSA driver categories
-remain software-backed. This is a candidate for reliability validation, not
-a release approval. Use `dtls-profile.conf` only with the pinned SDK: its build-local
-TLS timing copy fails closed on source hash changes and never edits the SDK.
-
-Switching between the baseline default and production modes changes
-`BT_KEYS_OVERWRITE_OLDEST`. The pinned SDK includes that option in its stored
-bond configuration flags and rejects records from the other configuration.
-Re-pair the phone/Mac after switching modes; remove a stale host-side bond if
-the host reports that the peer removed pairing information. This differs from
-rebooting within the same mode, where the saved bond should be restored.
-
-For the original baseline, use the helper without a preset, adding
-`applications/clip/dtls-upload.conf` to the established runtime/network overlays.
-Do not pass `--upload-only`. The overlay reserves TX 24 KiB, RX 4 KiB, heap
-72 KiB and a 64-packet logical window. These are allocations, not measured peak
-RAM use. The DTLS worker stack reservation is 12 KiB.
-
-Run `python3 -m server.dtls_upload_server --help` for the receiver command.
-It requires pyOpenSSL with public DTLS APIs, the existing certificate root and
-a private JSON mapping device IDs to tokens. Use a dedicated data directory:
-the DTLS receiver must not share it with HTTP writers. A process lock enforces
-one DTLS writer. The receiver has bounded concurrent peer workers and one authenticated writer
-owner per device. New authenticated sessions hand over the previous writer
-before loading durable progress; use the matching receiver code for persistent
-service validation.
-Opening TCP 9527 alone is insufficient; the service needs UDP 9527.
-
-Encrypted BLE and USB configure Wi-Fi, receiver credentials, `AT+TIME` and automatic
-upload. With developer interfaces enabled, USB `AT+UPLOADNET?` adds read-only statistics for the last DTLS file:
-elapsed time, packets, retransmissions, receipts, received/durable progress,
-resume offset, RTT, RTO and final window. `AT+UPLOAD?` reports protocol 3.
-Both time validity and CA/host verification remain mandatory.
-
-## Validation and performance evidence
-
-Run the host suite from the repository root:
-
-```sh
-python -m unittest discover -s tools/upload/tests -p 'test_*.py'
-```
-
-`test_upload_window.py` runs the actual C window core under sanitizers.
-`test_dtls_uploader_c.py` runs the actual C sender against the Python session,
-with a mock TLS boundary, to test packet loss, lost COMPLETE, cancellation and
-resume. This test does not validate cryptography. Receiver tests inject storage
-failures and verify publication and checkpoint rules. Batch tests exercise
-both HTTPS and DTLS variants and verify cleanup before recording can proceed.
-
-Host tests and compilation do not establish device throughput. For the first
-hardware comparison, keep CPU, network, server, recording bytes and timing
-boundaries fixed, and disable automatic upload during manual trials. Record
-transfer-only and whole-job rates separately, plus retransmissions, RTT, window,
-resume offset, runtime memory and final SHA256. Repeat the same file at least
-three times; retain every result, including regressions. Add loss/reconnect
-checks after establishing the main throughput result. Do not infer achievable
-uplink from the earlier UDP RAM downlink benchmark.
-
-## Measured candidate and diagnostic controls
-
-The candidate was selected by controlled real-device experiments on a574179-byte
-recording. Hardware GCM reduced measured encryption-call wall time from about
-1.425s to0.125s. A128/128 window produced312.9–315.7KiB/s in three
-window trials, with correct final SHA256 and no protocol retransmission.
-With8KiB DATA read-ahead, six trials produced329.1–339.4KiB/s, all
-with correct SHA256 and no protocol retransmission. Final confirmation averaged
-335.23KiB/s for DATA only; connection and handshake time are excluded.
-
-The cache matrix retains all results, including a16KiB trial with eight
-retransmissions and slow4KiB trials without retransmissions.16KiB did not
-improve the normal end-to-end DATA rate enough over8KiB to justify doubling
-the additional cache. These samples do not establish long-run or weak-network
-reliability. Raw records, ELF/map files and rollback images stay in the local
-firmware version directories, not in Git.
-
-When `CONFIG_CLIP_DEBUG_INTERFACES=y` and `CONFIG_CLIP_DTLS_PROFILE=y`,
-the following USB performance controls are RAM-only and
-reject SET while an upload or recording handoff is pending. The read-only
-`timing` snapshot remains available during the next file's upload:
-
-- `AT+UPLOADNET=timing`: read the last completed DATA-phase timing snapshot.
-- `AT+UPLOADNET=window`: read initial and maximum packet counts.
-- `AT+UPLOADNET=window,128,128`: change the next-file window, within16≤initial≤max≤128.
-- `AT+UPLOADNET=cache`: read the DATA read-ahead size.
-- `AT+UPLOADNET=cache,8`: choose4,8 or16KiB for the next file.
-
-These controls do not persist; reboot restores the build defaults. The base
-overlay restores16/64 and4KiB; the optimized preset restores128/128 and8KiB.
-The existing `AT+UPLOADNET?` response is unchanged. Timing is buffered in RAM
-without per-packet printing. The snapshot describes the last completed file,
-not the file currently being sent. A collector should correlate stable statistics
-and timing with completed DATA events and verify that every file was observed.
-SD read/seek values are nested under source time;
-window-full poll time is nested under poll time. Do not add nested values twice
-or treat these wall-time counters as isolated CPU time.
-
-Next acceptance focuses on a persistent receiver, repeated and batch uploads,
-recording interruption/resume, controlled loss/disconnect, server restart and
-real device power loss. Prior performance tests used fresh receiver instances
-per trial, so they do not satisfy that acceptance. The earlier intermittent
-Wi-Fi authentication failure remains unresolved.
+当前仍待专项确认：弱网络／DHCP与ARP偶发延迟、持续稳定性、真实掉电和介质损坏、
+整机上传能耗校准。多 Wi-Fi、充电／低电量上传策略、周期对账尚未实现。

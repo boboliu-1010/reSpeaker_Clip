@@ -1,8 +1,8 @@
 # Firmware Upgrade Guide
 
-Host-side procedures for upgrading reSpeaker Clip firmware — no debug probe needed for
-the USB and BLE paths. All host tools talk the **mcumgr Simple Management Protocol
-(SMP)** over the bootloader's USB CDC-ACM serial port or over BLE.
+Current upload firmware upgrades use the bootloader USB serial recovery path
+with the **mcumgr Simple Management Protocol (SMP)**. Application BLE SMP OTA is
+disabled; encrypted BLE AT control remains available and is a different feature.
 
 > The bootloader's USB serial recovery and the application's UART console are
 > independent. **Production builds (console off) still support USB serial DFU.**
@@ -12,46 +12,41 @@ the USB and BLE paths. All host tools talk the **mcumgr Simple Management Protoc
 | Method | Probe? | Tool | Artifact |
 |--------|--------|------|----------|
 | **USB serial DFU** (recommended) | No | `nrfutil mcu-manager` / `mcumgr` / nRF Connect | `*-signed.bin` or `*-ota.zip` |
-| BLE OTA | No | nRF Connect app / `mcumgr` | `*-ota.zip` |
+| BLE OTA | — | Disabled in the maintained upload firmware | — |
 | Programmer | Yes (J-Link) | `west flash` / `nrfutil device program` | `*-merged.hex` |
 
 Native USB-DFU (`dfu-util`) is **not** used — see [Why not dfu-util / native USB-DFU?](#why-not-dfu-util--native-usb-dfu).
 
-## Getting the firmware
+## Firmware artifacts and compatibility
 
-Official binaries are published on **GitHub Releases** — one release per version
-tag, each containing the 8 artifacts listed below:
-<https://github.com/Seeed-Studio/reSpeaker_Clip/releases>
+Build current firmware with [tools/upload](../tools/upload/README.md), selecting
+default or production explicitly. Match the signed image, partition layout and
+Wi-Fi patch to the target device; an upstream release package does not contain
+this branch's upload feature merely because both report version 0.1.2.
 
-- **Field users** normally want the **production** build: upload
-  `clip-<v>-production-signed.bin` (app-only upgrade) or
-  `clip-<v>-production-ota.zip` (app + network core) — this is the low-power
-  image with the serial console disabled.
-- **Debug** builds (console on, higher idle current) are for development and
-  post-mortem log inspection.
-- Developers can also **build locally** — see the [repo README](../README.md)
-  and [docs/custom_app_guide.md](custom_app_guide.md). A local build produces
-  the same files in the build directory (`zephyr.signed.bin`,
-  `dfu_application.zip`, `merged.hex`, ...); Releases just package them with
-  version-tagged names.
+| Local artifact | Use |
+|---|---|
+| `clip/zephyr/zephyr.signed.bin` | Application-only signed update |
+| `dfu_application.zip` | Application/network-core package; inspect its manifest before use |
+| `merged.hex`, `merged_CPUNET.hex` | Programmer images, not USB application-only updates |
 
-## Artifacts (the 8 files per release)
+Normal application updates do not provision the external Wi-Fi patch or resize
+LittleFS. See [external layout](wifi-patch-external-flash.md). Build logs, image
+hashes and rollback images stay in local version directories, not in the source repository.
 
-Every GitHub Release (and every local build) produces these — on Releases they
-are named `clip-<version>-{debug,production}-*`:
+## Signing keys
 
-| File | What it is | Use with |
-|------|-----------|----------|
-| `clip-<v>-*-merged.hex` | Full image (MCUboot + app + net core) | Programmer |
-| `clip-<v>-*-merged_CPUNET.hex` | Network core only | Programmer |
-| `clip-<v>-*-signed.bin` | Signed **app** image | USB serial DFU, BLE (mcumgr) |
-| `clip-<v>-*-ota.zip` | Multi-image package (app + net core) | USB serial DFU, BLE (mcumgr/nRF Connect) |
+The app-core image signature must match the key accepted by the target MCUboot.
+The repository default `boards/seeed/clip/sysbuild/root-rsa-2048.pem` is a public
+MCUboot sample key, suitable for development rather than a private product trust root.
+A production build profile does not replace that key automatically.
+The network-core signing key is separate (`SECURE_BOOT_SIGNING_KEY_FILE`).
 
-(`debug` and `production` variants of each = the 8 files; a local build's
-`output/<version>/` export is the same set.)
-
-For an app-only field upgrade, upload the `-signed.bin`. For a full app + net-core
-upgrade, upload the `-ota.zip`.
+Use the target device's bootloader identity and signature verification as evidence;
+changing the app's signing key alone does not make an installed bootloader accept it.
+Bootloader/key replacement requires a separate provisioning/recovery plan. Never
+include private signing keys with an upgrade package. Advanced custom-board build
+configuration is in [custom_app_guide.md](custom_app_guide.md#3-signing-keys).
 
 ## Entering USB serial recovery mode
 
@@ -149,12 +144,12 @@ nrfutil device list
 
 # Upload the app image (single-core field upgrade)
 nrfutil mcu-manager serial image-upload \
-    --firmware clip-0.0.5-production-signed.bin \
+    --firmware path/to/zephyr.signed.bin \
     --serial-port /dev/ttyACM0
 
 # ...or the full package (app + net core)
 nrfutil mcu-manager serial image-upload \
-    --firmware clip-0.0.5-production-ota.zip \
+    --firmware path/to/dfu_application.zip \
     --serial-port /dev/ttyACM0
 
 # Reset to apply (MCUboot verifies signature and swaps on next boot)
@@ -169,7 +164,7 @@ The upstream mcumgr CLI (`go install github.com/apache/mynewt-mcumgr/cli/mcumgr@
 
 ```sh
 mcumgr --conntype serial --connstring dev=/dev/ttyACM0,mtu=512 \
-    image upload clip-0.0.5-production-signed.bin
+    image upload path/to/zephyr.signed.bin
 
 # Inspect / confirm / reset
 mcumgr --conntype serial --connstring dev=/dev/ttyACM0,mtu=512 image list
@@ -180,29 +175,12 @@ mcumgr --conntype serial --connstring dev=/dev/ttyACM0,mtu=512 reset
 
 - **Desktop**: Programmer app → select the serial port → add the `-signed.bin` or
   `-ota.zip` → "Update".
-- **Mobile**: Device Manager app → connect over BLE → "Add file" → the `-ota.zip` →
-  "Update". (This is the BLE path; see below.)
+- Application BLE OTA is disabled in this upload firmware; use the desktop USB path.
 
 ## BLE OTA
 
-Same SMP protocol over Bluetooth LE. Use the `-ota.zip`.
-
-- **nRF Connect mobile** (Device Manager): connect to the device → "Add file" →
-  `clip-<v>-*-ota.zip` → "Update".
-- **nrfutil**:
-  ```sh
-  nrfutil mcu-manager ble image-upload \
-      --firmware clip-0.0.5-production-ota.zip \
-      --address <DEVICE-BLE-MAC>
-  ```
-- **mcumgr**:
-  ```sh
-  mcumgr --conntype ble --connstring peer_name=Clip \
-      image upload clip-0.0.5-production-ota.zip
-  ```
-  (`peer_name` does a prefix match against the device's BLE advertised name,
-  which is `Clip XXXX` — the 4 hex suffix of the FICR device id. Note that
-  `ClipAP_XXXX` is the **WiFi AP SSID**, not the BLE name.)
+Not enabled in the maintained upload build. Use USB recovery. This restriction
+is independent of normal BLE AT commands and the App's upload-control interface.
 
 ## Programmer (when a probe is available)
 
@@ -211,7 +189,7 @@ Full image, no signature-slot dance:
 ```sh
 west flash --build-dir build-clip && nrfutil device reset
 # or
-nrfutil device program --firmware clip-0.0.5-production-merged.hex --serial-number <JLINK-SN>
+nrfutil device program --firmware path/to/merged.hex --serial-number <JLINK-SN>
 ```
 
 > `west flash --reset` does **not** work on this board — reset separately with
@@ -268,8 +246,7 @@ secondary slot is harmless.
 ### Device rejects the image (signature verification failed)
 
 The image was signed with a different key than the one baked into the device's
-MCUboot. Re-obtain the official artifacts from
-[Releases](https://github.com/Seeed-Studio/reSpeaker_Clip/releases). Note that
+MCUboot. Use the known matching rollback package for this device and layout. Note that
 this repository's default key (`root-rsa-2048.pem`) is MCUboot's
 publicly-available **sample** key — fine for development, but any image you
 build yourself with it will only run on development devices expecting that key.
@@ -281,7 +258,7 @@ This board's MCUboot runs in **overwrite-only** mode
 new image is copied over the primary slot with **no automatic revert** and no
 `image-confirm`/revert semantics. If the upgraded image is bad, recovery means
 re-entering serial recovery (1200 baud, or button + USB) and uploading a known
-good image (e.g. the last working version from Releases).
+good image from the retained device rollback set.
 
 ### Boot loop after repeated pair/unpair
 

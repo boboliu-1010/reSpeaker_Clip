@@ -27,24 +27,24 @@ Baseline command compatibility in the upload build:
   transport restrictions. Restoring baseline commands does not enable developer
   interfaces in production.
 
-In that experimental build, START during an upload queues one recording request
+In the maintained upload build, START during an upload queues one recording request
 and returns `{"ok":true,"data":{"pending":true,"session":null}}`. It does not
 mean capture has started. Repeated START requests coalesce without changing the
 first request's mode. GSTAT adds `record_pending` (boolean) and `record_error`
 (the last deferred-start result, zero or negative errno). Wait for `recording:true`
 and obtain the actual session ID then. STOP can cancel a pending start. Upload
 resources are released before the queued recording starts; no concurrent capture
-and HTTPS is promised. The upload thread owns a nonblocking TCP/mbedTLS stream
+and upload is promised. The upload thread owns the UDP/DTLS context
 and checks cancellation between short I/O waits; DNS, cryptographic work and
 audio startup still require end-to-end latency validation. Stock builds retain
 their existing START/GSTAT responses.
-The experimental USB `UPLOAD` status includes `protocol:2`, `size`, `sent`,
+The USB `UPLOAD` status includes `protocol:3`, `size`, `sent`, `received`,
 `confirmed` and `resume_from`. The server checkpoint is queried on every job;
 only `confirmed` means durably acknowledged bytes. See the
-[resumable upload contract](https-resume-v2.md) for identities and recovery.
+[DTLS upload flow](dtls-upload-core.md#协议流程) for identities and recovery.
 `UPLOADSTATE=session:segment` reads the separate, destination-bound persistent
-HTTPS state while idle. It never changes phone sync flags; see
-[persistent upload state](https-upload-state.md). `UPLOAD?` also reports
+upload state while idle. It never changes phone sync flags; see
+[persistent upload state](dtls-upload-core.md#本地状态与内容哈希). `UPLOAD?` also reports
 `state_error` for local metadata persistence failures.
 `UPLOADAUTO=on/off` enables/disables persistent idle scheduling; `UPLOADAUTO?`
 reports scheduling and backoff state. Wi-Fi and receiver SET commands save
@@ -60,12 +60,19 @@ separate release/debug profile exists. Developer-only commands require
 `UPLOADCLOCK`, per-file `UPLOAD=session:segment`, and performance diagnostics.
 `UPLOADSAVE` and `UPTIME` have been removed; use automatic configuration saves
 and the existing `AT+TIME` recorder clock command instead.
-See [automatic upload](https-auto-upload.md) for provisioning, recording priority,
+See [automatic upload](dtls-upload-core.md#自动调度) for provisioning, recording priority,
 time verification, failure recovery, and the precise meaning of uploaded state.
 > Read-only `AT+RES` and thread stack queries remain available during uploads
-> when `CLIP_RESOURCE_STATS` is enabled. This is an experimental build profile.
+> when `CLIP_RESOURCE_STATS` is enabled. Diagnostics are excluded from production.
 
 ## 1. Protocol Overview
+
+### Recording format in the maintained build
+
+Both normal and enhanced modes currently merge the two microphones to mono at
+16 kHz. Their default Opus target is 32 kbit/s VBR; enhanced processing does not
+automatically double the stored file size. Read actual metadata and bytes rather
+than inferring stereo from the normal/stereo command alias.
 
 ### Station Wi-Fi provisioning in the upload build
 
@@ -75,7 +82,7 @@ idle (no recording, upload or validation); the persistent automatic-upload
 enable flag is preserved. Receiver enrollment is also available over encrypted
 BLE when `CLIP_UPLOAD_APP` is enabled; instrumentation remains USB-only. The existing single-bond BLE policy is unchanged.
 
-Both BLE and USB SET save the credentials to the existing internal LittleFS settings record
+Both BLE and USB SET save the credentials to the device LittleFS settings record on external SPI NOR
 before acknowledging success. Successful
 SET and QUERY return the following shape; `ssid_hex` encodes UTF-8 bytes:
 
@@ -1365,84 +1372,16 @@ AT+NAME?
 
 ##### AT+WIFI - WiFi AP Control
 
-Control the WiFi Access Point for local file transfer.
-
-**Request (Start):**
-```
-AT+WIFI=on
-```
-
-**Request (Stop):**
-```
-AT+WIFI=off
-```
-
-**Request (Query):**
-```
-AT+WIFI?
-```
-
-**Response (Start):**
-```json
-{
-  "ok": true,
-  "data": {
-    "ssid": "ClipAP_A1B2",
-    "password": "12345678",
-    "ip": "192.168.4.1",
-    "port": 8089
-  }
-}
-```
-
-**Response (Stop):**
-```json
-{
-  "ok": true,
-  "data": { "wifi": "off" }
-}
-```
-
-**Response (Query):**
-```json
-{
-  "ok": true,
-  "data": {
-    "running": true,
-    "ssid": "ClipAP_A1B2",
-    "password": "12345678",
-    "ip": "192.168.4.1",
-    "port": 8089,
-    "connected": true
-  }
-}
-```
-
-**Fields:**
-- `ssid`: WiFi SSID (ClipAP_XXXX, last 4 hex of chip ID)
-- `password`: WPA2 password (12345678)
-- `ip`: AP IP address (192.168.4.1)
-- `port`: UDP transfer port (8089)
-- `running`: Whether AP is active
-- `connected`: Whether a client is connected
-
-**State Change:** IDLE → WIFI_SYNC (on), WIFI_SYNC → IDLE (off)
-
-**Constraints:**
-- Cannot start WiFi while recording
-- Cannot start recording while WiFi is active
-
-**Auto-off:** WiFi AP automatically stops after 3 minutes if no client connects.
-
-**Error Cases:**
-- `{"ok":false,"msg":"Missing argument (on/off)"}` / `"Invalid argument (use on/off)"`
-- `"Cannot start WiFi in current state"` / `"Failed to start WiFi AP"` / `"Failed to stop WiFi AP"`
+The maintained upload image has no AP service. `AT+WIFI?` remains a compatibility
+query; `AT+WIFI=on/off` is unsupported in this build. Configure Station upload
+with `NETCFG` and control scheduling with `UPLOADAUTO`; WIFI does not select the
+server-upload connection. Optional baseline AP framing is in Appendix D.
 
 ---
 
-##### AT+USB - USB CDC+MSC Control
+##### AT+USB - USB CDC Control
 
-Enable or disable USB CDC (serial console) and MSC (mass storage / SD card access).
+The maintained upload build enables/disables USB CDC AT access only. MSC is compiled out, so this does not expose recording files as a USB disk.
 
 **Request (Enable):**
 ```
@@ -2146,7 +2085,7 @@ Stored in each session directory, contains session information, sync progress, a
   "duration": 600,
   "files": 30,
   "synced": 15,
-  "channels": 2,
+  "channels": 1,
   "sample_rate": 16000,
   "mode": "normal"
 }
@@ -2170,7 +2109,7 @@ Stored in each session directory, contains session information, sync progress, a
 **Example Usage:**
 ```
 # Session has 30 files, 15 have been transferred
-# Audio is normal mode (stereo, 2 channels) at 16kHz
+# Audio is normal mode (mono) at 16kHz
 # Next transfer should start from file 0016.opus
 AT+DOWNLOAD=20240203100000:0016.opus
 ```
@@ -2604,36 +2543,17 @@ Device: <TRANSFER_DONE "20240203100000" count=30>
 
 ## Appendix C: Performance Characteristics
 
-### BLE Transfer Rates
-
-| MTU | Throughput | 1MB Time |
-|-----|------------|----------|
-| 23 | ~8 KB/s | ~2m 5s |
-| 247 | ~22 KB/s | ~46s |
-| 517 | ~28 KB/s | ~36s |
-
-**Optimal Configuration:** MTU 517
-
-### WiFi UDP Transfer Rates
-
-| Scenario | Throughput | 1MB Time |
-|----------|------------|----------|
-| Typical WiFi | ~500 KB/s | ~2s |
-
-### Memory Usage
-
-| Component | Usage |
-|-----------|-------|
-| Audio buffer | 32 KB |
-| Opus encoder | 20 KB |
-| SpeexDSP | 10 KB |
-| Transfer buffer | 4 KB |
-| BLE stack | ~50 KB |
-| Total fixed | ~116 KB |
-
-**Available heap:** ~32 KB from 192 KB non-secure SRAM
+Current DTLS DATA and whole-job rates must be measured separately; there is no
+universal upload speed guarantee. See [upload performance](dtls-upload-core.md#当前配置与诊断)
+and [build resources](development.md#当前资源基准). The Wi-Fi AP download figure from
+the original device protocol is not an uplink benchmark for this firmware.
 
 ## Appendix D: WiFi UDP Transfer Protocol
+
+> The maintained `dtls-single` firmware compiles out AP service. The framing below
+> documents the optional baseline AP code in this repository; it is not the
+> DTLS/UDP upload protocol or a feature available in the maintained upload image.
+
 
 The WiFi UDP transport provides high-speed local file transfer when the device is in WiFi AP mode. It uses the same binary frame protocol as BLE (Section 4) with additional frames for reliability and keepalive.
 
@@ -2669,7 +2589,6 @@ The WiFi UDP transport provides high-speed local file transfer when the device i
 | Per-frame CRC | None (link layer) | IEEE CRC32 per frame |
 | FILE_ACK | None | Yes (CRC mismatch → retransmit) |
 | Heartbeat | None | ~200 ms during transfer, 30s idle timeout |
-| Throughput | ~15 KB/s | ~500 KB/s |
 
 ### D.4 Frame Formats (UDP-specific differences)
 
@@ -2917,44 +2836,12 @@ server.
 **4. Document it** in this file — add the full command section under 3.3.x
 and a row in the Appendix A quick reference table, in the same PR.
 
-## Appendix G: BLE OTA for Client Developers
+## Appendix G: Firmware upgrade in the upload build
 
-For mobile apps implementing in-app firmware update.
+Application BLE OTA is disabled in the maintained upload build. BLE AT control,
+including the supported command to enter recovery, is separate from BLE SMP OTA.
+Use the [USB serial recovery guide](usb_dfu.md) for the current update path.
 
-**Transport.** The running application exposes the standard mcumgr SMP
-service over BLE (`CONFIG_NCS_SAMPLE_MCUMGR_BT_OTA_DFU=y` in
-`applications/clip/prj.conf`, which selects Zephyr's `MCUMGR_TRANSPORT_BT`):
-
-- Service UUID: `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`
-- Characteristic (write + notify): `DA2E7828-FBCE-4E01-AE9E-261174997C48`
-
-Speak plain mcumgr/SMP (CBOR-encoded image management group) over that
-characteristic — the same protocol `mcumgr` / `newtmgr` clients use.
-
-**No bootloader reboot needed.** Image upload happens into the secondary slot
-while the application keeps running. The device is dual-image
-(`CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER=2`): image 0 = application
-core, image 1 = network core.
-
-**Swap semantics — important.** This board's MCUboot runs in **overwrite-only
-mode** (`MCUBOOT_MODE_OVERWRITE_ONLY` is the board default in
-`boards/seeed/clip/Kconfig.sysbuild`). That means:
-
-- There is **no image-test / image-confirm / automatic revert**. The classic
-  mcumgr "test then confirm" dance does not apply.
-- After upload completes, send the mcumgr reset (OS group) — on reboot
-  MCUboot overwrites the primary slot with the new image and boots it
-  **immediately and unconditionally**. A bad image cannot roll back.
-
-**Which artifact to upload:**
-
-- `clip-<ver>-ota.zip` (the sysbuild `dfu_application.zip`) — multi-image
-  package containing app core **and** network core images. Preferred.
-- `clip-<ver>-signed.bin` — application-core image only.
-
-Both are attached to each GitHub Release. Host-tool procedures (mcumgr CLI,
-nRF Connect, USB serial DFU fallback) are covered in
-[`docs/usb_dfu.md`](usb_dfu.md).
 # Optional runtime instrumentation (`CLIP_RESOURCE_STATS`)
 
 Instrumented builds add `AT+RES` (also `AT+RES?`) and read-only pagination

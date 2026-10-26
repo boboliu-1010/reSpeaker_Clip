@@ -62,21 +62,23 @@ commands (`at_server.c`, `at_commands.c`), UI (`display.c`, `button.c`,
 `wifi_udp.c`, `battery.c`, `config.c`). See
 [docs/architecture.md](../../docs/architecture.md).
 
-## Connecting
+## Connecting in the maintained upload build
 
-All three transports speak the same JSON AT commands
-([docs/protocol.md](../../docs/protocol.md)):
+- **BLE**: encrypted AT control, recording download and upload notifications.
+- **USB**: CDC ACM serial AT channel; MSC recording-disk access is disabled.
+- **Wi-Fi**: device joins a configured 2.4 GHz WPA2 network as Station and uploads
+  directly to the receiver over DTLS/UDP; no AP is exposed by `dtls-single`.
+- Application BLE SMP OTA is disabled; USB serial recovery remains available.
 
-- **BLE**: advertises as `Clip XXXX` (last 4 hex of chip id) — also the
-  BLE OTA channel
-- **WiFi AP**: SSID `ClipAP_XXXX`, password `12345678` (default), IP
-  `192.168.4.1`, UDP port `8089` ([docs/udp_protocol.md](../../docs/udp_protocol.md))
-- **USB**: CDC ACM serial AT channel + MSC mass storage (SD card)
+Build the maintained feature using [tools/upload](../../tools/upload/README.md).
+The plain board/application examples above are not evidence that a build includes
+that preset. Current configuration and runtime boundaries are documented in
+[development.md](../../docs/development.md).
 
 ## Documentation
 
 - [docs/protocol.md](../../docs/protocol.md) — BLE AT command protocol
-- [docs/udp_protocol.md](../../docs/udp_protocol.md) — UDP file transfer protocol
+- [DTLS upload](../../docs/dtls-upload-core.md) — automatic upload and recovery
 - [docs/architecture.md](../../docs/architecture.md) — system architecture
 - [docs/custom_app_guide.md](../../docs/custom_app_guide.md) — custom app
   development (build, flash, OTA, DFU recovery)

@@ -156,10 +156,10 @@ After finding optimal values, configure in device tree:
 ## Documentation
 
 - `docs/protocol.md` - BLE AT command protocol specification
-- `docs/udp_protocol.md` - UDP file transfer protocol
+- `docs/protocol.md#appendix-d-wifi-udp-transfer-protocol` - UDP file transfer protocol
 - `docs/architecture.md` - System architecture design
 - `docs/requirements.md` - Product requirements
-- `docs/development.md` - Development log
+- `docs/development.md` - Current build, verification, resources and branch workflow
 - `docs/audio_quality_standard.md` - Audio recording quality test standard (ASR/transcription target)
 - `docs/custom_app_guide.md` - Custom app development guide (build, flash, BLE OTA, USB serial DFU recovery, signing key, MCUboot features)
 - `docs/usb_dfu.md` - Firmware upgrade guide (USB serial DFU via mcumgr/nrfutil, BLE OTA, programmer)

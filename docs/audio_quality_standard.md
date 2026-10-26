@@ -1,5 +1,7 @@
 # Clip Audio Quality Test Standard
 
+> 音质测试方法与目标，不是测试通过记录。当前普通／增强录音均为双麦合并单声道，实际格式和结果以固件及样本为准。
+
 ## 1. Overview
 
 This document defines the testing standards and methods for evaluating the audio recording quality of the reSpeaker Clip device. Clip recordings are primarily used for **speech-to-text (ASR)** and **content summarization**. The core requirements are speech intelligibility and transcription accuracy. The target language is **Chinese and English mixed**.

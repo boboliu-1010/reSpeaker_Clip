@@ -13,9 +13,9 @@ import tempfile
 import threading
 import unittest
 
-from dtls_upload_protocol import OPEN, DATA, COMPLETE, unpack
-from dtls_upload_session import UploadSession
-from resume_store import ResumeStore
+from server.dtls_upload_protocol import OPEN, DATA, COMPLETE, unpack
+from server.dtls_upload_session import UploadSession
+from server.resume_store import ResumeStore
 
 ROOT = Path(__file__).resolve().parents[2]
 

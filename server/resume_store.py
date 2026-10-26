@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from profile_timing import measure, timed_lock
+from .profile_timing import measure, timed_lock
 
 MAX_FILE = 8 * 1024 * 1024
 MAX_CHUNK = 16 * 1024

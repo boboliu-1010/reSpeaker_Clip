@@ -148,7 +148,7 @@ Do not pass `--upload-only`. The overlay reserves TX 24 KiB, RX 4 KiB, heap
 72 KiB and a 64-packet logical window. These are allocations, not measured peak
 RAM use. The DTLS worker stack reservation is 12 KiB.
 
-Run `tools/https_poc/dtls_upload_server.py --help` for the receiver command.
+Run `python3 -m server.dtls_upload_server --help` for the receiver command.
 It requires pyOpenSSL with public DTLS APIs, the existing certificate root and
 a private JSON mapping device IDs to tokens. Use a dedicated data directory:
 the DTLS receiver must not share it with HTTP writers. A process lock enforces

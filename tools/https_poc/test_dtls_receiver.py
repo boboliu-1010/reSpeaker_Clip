@@ -11,11 +11,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from dtls_upload_server import Receiver, is_client_hello
-from dtls_server_transport import DatagramTLS, make_context
-from dtls_upload_protocol import OPEN, DATA, QUERY, ACK, COMPLETE, ERROR, frame, unpack, open_body, RECEIPT
-from make_credentials import generate
-from resume_store import ResumeStore
+from server.dtls_upload_server import Receiver, is_client_hello
+from server.dtls_server_transport import DatagramTLS, make_context
+from server.dtls_upload_protocol import OPEN, DATA, QUERY, ACK, COMPLETE, ERROR, frame, unpack, open_body, RECEIPT
+from server.make_credentials import generate
+from server.resume_store import ResumeStore
 
 
 def hello():

@@ -1,5 +1,7 @@
 # HTTPS 最小验证版
 
+接收服务代码已独立到仓库根目录 [`server/`](../../server/README.md)，本目录保留固件构建、设备控制和回归测试工具。
+
 当前已扩展为[空闲自动上传](../../docs/https-auto-upload.md)：USB 配置并显式开启后，
 设备自行发现录音、上传、续传和退避重试。仍保留手动单文件入口；接收服务用于受控验证。
 
@@ -27,25 +29,11 @@ python3 -m unittest discover -s tools/https_poc -p 'test_*.py' -v
 
 另覆盖空闲 TLS 握手隔离、连续 20 次新连接上传、落盘字节与回执一致性，以及 USB 控制工具的响应解析和异常输入。最新结果见 [无设备测试记录](../../docs/https-prehardware-test-results.md)。
 
-## 2. 生成测试凭据并启动接收服务
+## 2. 接收服务
 
-在隔离目录生成有效期 7 天的测试证书；目录必须不存在。实际设备测试需使用设备可解析、可访问的域名，不能使用 `localhost`。
-
-```sh
-python3 tools/https_poc/make_credentials.py tools/https_poc/.local/lab --hostname clip-lab.example.net
-python3 tools/https_poc/server.py \
-  --bind 127.0.0.1 --port 8443 \
-  --cert tools/https_poc/.local/lab/ca.pem \
-  --key tools/https_poc/.local/lab/server.key \
-  --token-file tools/https_poc/.local/lab/token \
-  --device clip-test --directory tools/https_poc/.local/recordings
-```
-
-上述域名是占位符。电脑自测保持 loopback；设备联调另行绑定受控 LAN 地址并限制访问来源，不直接开放公网。服务仅为测试夹具，未实现生产级连接限流、配额、密钥轮换和监控。
-
-接收端按设备／会话／片段生成对象名，验证后原子保存。兼容原 `/v1` 整文件协议；当前设备使用 `/v2` 分块协议，同一 TLS 连接先查询检查点再逐块上传。每块最多 16 KiB，回执前同步数据和检查点；中断保留已确认前缀，未确认尾部恢复时丢弃。完整文件通过总长度与 SHA-256 校验后才成为最终对象。详细请求、状态和故障恢复规则见 [续传协议](../../docs/https-resume-v2.md)。
-
-私钥、令牌和客户端配置不得提交或打印到日志。证书到期或更换后，重新生成并用对应公开 CA 重编译固件。
+服务端源码已移到仓库根目录 [`server/`](../../server/README.md)，当前只保留 DTLS/UDP 接收端。
+旧 HTTPS 接收程序及部署入口已删除。下面关于 HTTPS 固件的说明保留为历史实验说明；
+当前上传协议和接收端使用方式见 [DTLS 方案](../../docs/dtls-upload-core.md)。
 
 ## 3. 服务器编译
 
@@ -93,7 +81,7 @@ SDK 副本，不修改共享 NCS 工作区；DHCP 与 ARP 分开验证。
 
 ## 4. USB 控制方式
 
-先完成外置补丁启动验证，再连接 USB CDC。建立权限为 `0600` 的私有 JSON 配置，字段为 `ssid`、`password`、`host`、`port`、`device`、`token`。`host` 必须与证书中的 DNS 名称或 IP 地址一致，`device` 与接收端一致。`make_credentials.py --hostname` 接受 DNS 名称或 IPv4 地址，并生成对应 SAN 类型；局域网 IP 改变时需重新生成证书并构建。SSID 不支持逗号；首版只支持 2.4 GHz WPA2-Personal。
+先完成外置补丁启动验证，再连接 USB CDC。建立权限为 `0600` 的私有 JSON 配置，字段为 `ssid`、`password`、`host`、`port`、`device`、`token`。`host` 必须与证书中的 DNS 名称或 IP 地址一致，`device` 与接收端一致。`python3 -m server.make_credentials --hostname` 接受 DNS 名称或 IPv4 地址，并生成对应 SAN 类型；局域网 IP 改变时需重新生成证书并构建。SSID 不支持逗号；首版只支持 2.4 GHz WPA2-Personal。
 
 `device.py`、`hardware_probe.py` 和 `negative_probe.py` 共用 `device.load_config`
 校验私有配置，在打开串口前检查字段、字节长度和端口范围。设备名只接受

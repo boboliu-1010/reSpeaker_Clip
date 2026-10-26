@@ -12,10 +12,10 @@ import struct
 import threading
 import time
 
-from dtls_server_transport import DatagramTLS, make_context
-from dtls_upload_protocol import ERROR, IDENTIFIER, frame, unpack
-from dtls_upload_session import UploadSession
-from resume_store import ResumeStore, ResumeError
+from .dtls_server_transport import DatagramTLS, make_context
+from .dtls_upload_protocol import ERROR, IDENTIFIER, frame, unpack
+from .dtls_upload_session import UploadSession
+from .resume_store import ResumeStore, ResumeError
 
 
 def load_identities(path):

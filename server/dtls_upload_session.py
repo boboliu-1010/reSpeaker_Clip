@@ -3,10 +3,10 @@ import hmac
 import struct
 import time
 
-from dtls_upload_protocol import (OPEN, DATA, QUERY, FINISH, ERROR, frame,
+from .dtls_upload_protocol import (OPEN, DATA, QUERY, FINISH, ERROR, frame,
                                   unpack, parse_open, receipt)
-from dtls_upload_store import UploadWriter
-from resume_store import ResumeError
+from .dtls_upload_store import UploadWriter
+from .resume_store import ResumeError
 
 
 class UploadSession:

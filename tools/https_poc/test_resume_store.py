@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
-from resume_store import MAX_CHUNK, ResumeError, ResumeStore
+from server.resume_store import MAX_CHUNK, ResumeError, ResumeStore
 
 
 class ResumeStoreTest(unittest.TestCase):

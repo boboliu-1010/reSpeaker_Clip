@@ -1,14 +1,9 @@
 """Exercise the firmware command policy and LAN certificate identity."""
 from pathlib import Path
 import subprocess
-import socket
-import ssl
 import tempfile
-import threading
 import unittest
 
-from make_credentials import generate
-from server import Receiver
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -411,30 +406,6 @@ int main(void) {
                             "-o", str(root / "test")], check=True)
             subprocess.run([str(root / "test")], check=True)
 
-    def test_ip_certificate_matches_only_requested_address(self):
-        with tempfile.TemporaryDirectory() as directory:
-            cert, key = generate(Path(directory) / "credentials", "127.0.0.1")
-            server = Receiver(("127.0.0.1", 0), Path(directory) / "recordings", "fixture", "fixture")
-            tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            tls.load_cert_chain(cert, key)
-            server.socket = tls.wrap_socket(server.socket, server_side=True,
-                                            do_handshake_on_connect=False)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            trusted = ssl.create_default_context(cafile=str(cert))
-            try:
-                with socket.create_connection(server.server_address, timeout=3) as connection:
-                    with trusted.wrap_socket(connection, server_hostname="127.0.0.1"):
-                        pass
-                with socket.create_connection(server.server_address, timeout=3) as connection:
-                    with self.assertRaises(ssl.SSLCertVerificationError):
-                        trusted.wrap_socket(connection, server_hostname="127.0.0.2")
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(3)
-            self.assertEqual(key.stat().st_mode & 0o777, 0o600)
-            self.assertEqual((key.parent / "token").stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

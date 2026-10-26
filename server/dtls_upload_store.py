@@ -9,8 +9,8 @@ import json
 import os
 import time
 
-from dtls_upload_protocol import MAX_FILE, PAYLOAD, WINDOW_PACKETS
-from resume_store import ResumeStore, ResumeError
+from .dtls_upload_protocol import MAX_FILE, PAYLOAD, WINDOW_PACKETS
+from .resume_store import ResumeStore, ResumeError
 
 
 class UploadWriter:

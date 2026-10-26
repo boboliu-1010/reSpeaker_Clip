@@ -9,8 +9,8 @@ import tempfile
 import threading
 import unittest
 
-from profile_timing import FileSink, identify, measure, request
-from resume_store import ResumeStore
+from server.profile_timing import FileSink, identify, measure, request
+from server.resume_store import ResumeStore
 
 ROOT = Path(__file__).resolve().parents[2]
 

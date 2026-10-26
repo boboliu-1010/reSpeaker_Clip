@@ -9,11 +9,11 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from dtls_upload_protocol import (OPEN, DATA, QUERY, FINISH, ACK, COMPLETE,
+from server.dtls_upload_protocol import (OPEN, DATA, QUERY, FINISH, ACK, COMPLETE,
                                   PAYLOAD, RECEIPT, frame, unpack, open_body, parse_open)
-from dtls_upload_session import UploadSession
-from dtls_upload_store import UploadWriter
-from resume_store import ResumeStore, ResumeError
+from server.dtls_upload_session import UploadSession
+from server.dtls_upload_store import UploadWriter
+from server.resume_store import ResumeStore, ResumeError
 
 
 class DurableDatagramTest(unittest.TestCase):
@@ -97,7 +97,7 @@ class DurableDatagramTest(unittest.TestCase):
     def test_data_fsync_failure_never_advances_durable_progress(self):
         self.send(OPEN, body=self.start)
         self.send(DATA, 0, self.content[:1024], now=.1)
-        with patch('dtls_upload_store.os.fsync', side_effect=OSError('injected')):
+        with patch('server.dtls_upload_store.os.fsync', side_effect=OSError('injected')):
             with self.assertRaises(OSError):
                 self.session.tick(.6)
         self.assertEqual(self.session.writer.durable, 0)

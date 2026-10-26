@@ -59,4 +59,4 @@
 
 关键源码：[官方手机连接控制器](../../mobile/app/lib/src/features/device/presentation/device_controller.dart)、[桌面连接页](../../mobile/app/lib/src/features/desktop/desktop_clip_page.dart)、[共用 SDK](../../mobile/sdk/flutter/lib/src/ble/ble_client.dart)。
 
-本次新增内容为静态核对和文档；先前本地扫描修复仍与已发布 Beta 4 分开，不表示连接故障已经修复。
+以上差异冻结于 Beta 4，原始对比证据不随工作区修改。后续底层连接修复、回归测试和验证边界见 [Beta 5](../releases/boa-desktop-v1.0.1-beta.5.md)。

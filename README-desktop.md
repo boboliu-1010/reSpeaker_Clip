@@ -1,6 +1,6 @@
 # Boa Voice macOS Beta 4
 
-当前版本：**1.0.1-beta.4+4**。开发入口 `https://100.58.19.213:9528`。
+当前版本：**1.0.1-beta.5+5**。开发入口 `https://100.58.19.213:9528`。
 
 - 本地录音、播放、导入/导出、回收站和自动上传。
 - Clip BLE 连接、状态、开始/停止录音、配网、上传目标配置、时间同步、自动上传与进度。
@@ -12,7 +12,7 @@
 
 「Clip 设备」连接并配对 → 保存 Wi-Fi → 保存 Server 主机:端口、设备 ID/设备令牌 → 检查 Wi-Fi → 同步时间 → 开启自动上传。Clip 固件需要信任对应 DTLS CA。当前先交付 Beta，开发机外部 UDP 连通性待网络处理后复测。
 
-[Server 安装与登记](services/boa_server/README.md) · [功能与协议](docs/product/boa-voice-overview.md) · [Beta 4 验收](docs/releases/boa-desktop-v1.0.1-beta.4.md)
+[Server 安装与登记](services/boa_server/README.md) · [功能与协议](docs/product/boa-voice-overview.md) · [Beta 5 连接修复](docs/releases/boa-desktop-v1.0.1-beta.5.md) · [Beta 4 验收](docs/releases/boa-desktop-v1.0.1-beta.4.md)
 
 ---
 

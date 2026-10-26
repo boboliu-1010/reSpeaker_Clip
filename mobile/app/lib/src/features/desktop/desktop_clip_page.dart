@@ -103,9 +103,11 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
         await _link?.cancel();
         await _batterySub?.cancel();
         final candidate = result == null
-            ? await _sdk.connectByDeviceId(_savedId)
-            : await _sdk.connect(result);
-        if (candidate == null) throw StateError('无法连接已记住的设备，请重新搜索');
+            ? await _sdk.connectByDeviceIdAndVerify(_savedId)
+            : await _sdk.connectAndVerify(result);
+        if (candidate == null) {
+          throw StateError('Clip 连接未就绪或 AT 通道无响应，请重新搜索并连接');
+        }
         if (!mounted) {
           await _sdk.disconnect(candidate);
           return;

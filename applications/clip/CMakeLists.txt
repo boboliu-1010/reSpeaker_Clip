@@ -98,7 +98,7 @@ if(CONFIG_CLIP_HTTPS_POC)
     file(WRITE "${PROJECT_BINARY_DIR}/https_ca.h"
         "static const unsigned char https_ca[] = {${_ca_bytes}0};\n")
     target_include_directories(app PRIVATE "${PROJECT_BINARY_DIR}")
-    target_sources(app PRIVATE src/wifi_station.c src/https_poc.c src/upload_state.c src/upload_config.c src/upload_scan.c)
+    target_sources(app PRIVATE src/wifi_station.c src/https_poc.c src/upload_state.c src/upload_config.c src/upload_scan.c src/upload_command.c)
     target_sources_ifdef(CONFIG_CLIP_RECORDING_HASH app PRIVATE src/recording_hash.c)
     target_sources_ifdef(CONFIG_CLIP_HTTPS_PROFILE app PRIVATE src/upload_perf.c)
     target_sources_ifdef(CONFIG_CLIP_UPLOAD_APP app PRIVATE src/upload_app.c)

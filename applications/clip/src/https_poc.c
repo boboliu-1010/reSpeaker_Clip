@@ -33,6 +33,8 @@ BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_
              "Initial DTLS window must not exceed its ceiling");
 #endif
 #include "upload_perf.h"
+#include "upload_command.h"
+#include "transfer.h"
 #ifdef CONFIG_CLIP_UPLOAD_APP
 #include "upload_app.h"
 #endif
@@ -235,59 +237,10 @@ void https_poc_record_complete(enum clip_event_result result)
     atomic_clear(&record_pending);
 }
 
-bool https_poc_command_allowed(const char *name)
+int https_poc_command_begin(const char *name, uint8_t type)
 {
-#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
-    if (!strcmp(name, "DELETE")) {
-        return !https_poc_active() && !https_poc_record_pending() &&
-               !settings.enabled && clip_event_get_state() == CLIP_STATE_IDLE;
-    }
-#endif
-    /* Read-only instrumentation must remain available during TLS/upload. */
-#ifdef CONFIG_CLIP_RESOURCE_STATS
-    if (!strcmp(name, "RES")) { return true; }
-#endif
-#ifdef CONFIG_CLIP_TCP_TRACE
-    if (!strcmp(name, "TCPTRACE")) { return true; }
-#endif
-#ifdef CONFIG_CLIP_HTTPS_PROFILE
-    if (!strcmp(name, "UPLOADPERF")) { return true; }
-#endif
-#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
-    if (!strcmp(name, "UPLOADNET")) { return true; }
-#endif
-    if (IS_ENABLED(CONFIG_CLIP_WIFI_DIAG) &&
-        (!strcmp(name, "NETDIAG") || !strcmp(name, "NETTRACE") || !strcmp(name, "NETTX"))) {
-        return true;
-    }
-    /* A deliberately small control surface also excludes deferred erase/reboot
-     * commands which could outlive the AT handler and race a subsequent job. */
-    if (https_poc_active() || https_poc_record_pending()) {
-        return !strcmp(name, "UPLOAD") || !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "UPLOADAUTO") ||
-#ifdef CONFIG_CLIP_UPLOAD_APP
-               !strcmp(name, "NETCHECK") || !strcmp(name, "NETCFG") ||
-#endif
-               !strcmp(name, "START") || !strcmp(name, "STOP") ||
-               !strcmp(name, "GSTAT") || !strcmp(name, "BATT") || !strcmp(name, "VERSION");
-    }
-#ifdef CONFIG_CLIP_WIFI_AUTH_LOG
-    if (!strcmp(name, "LOG")) { return true; }
-#endif
-    return !strcmp(name, "NETCFG") || !strcmp(name, "UPLOADCFG") ||
-#ifdef CONFIG_CLIP_UPLOAD_APP
-           !strcmp(name, "NETCHECK") ||
-#endif
-           !strcmp(name, "UPLOAD") ||
-           !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "USB") ||
-           !strcmp(name, "GSTAT") || !strcmp(name, "BATT") ||
-           !strcmp(name, "VERSION") || !strcmp(name, "LIST") ||
-           !strcmp(name, "START") || !strcmp(name, "STOP") ||
-           !strcmp(name, "UPLOADSTATE") || !strcmp(name, "UPLOADLIST") ||
-           !strcmp(name, "UPLOADAUTO") ||
-#ifdef CONFIG_CLIP_DEBUG_INTERFACES
-           !strcmp(name, "UPLOADCLEAR") || !strcmp(name, "UPLOADCLOCK") ||
-#endif
-           !strcmp(name, "TIME") || !strcmp(name, "STORAGE");
+    return upload_command_begin(name, type, clip_event_get_state() == CLIP_STATE_IDLE,
+                                https_poc_active(), https_poc_record_pending(), transfer_is_active());
 }
 
 bool https_poc_event(enum clip_event event, struct clip_event_result_info *result,
@@ -298,9 +251,11 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
     if (event == CLIP_EVENT_START || event == CLIP_EVENT_STOP) { atomic_inc(&activity); }
     if (event == CLIP_EVENT_POWER_OFF_EXEC) { atomic_set(&auto_paused, 1); }
     if (event == CLIP_EVENT_UPLOAD_BEGIN) {
-        if (!device_idle || https_poc_record_pending() || !atomic_cas(&active, 0, 1)) {
+        if (!device_idle || https_poc_record_pending() || https_poc_active() ||
+            transfer_is_active() || !upload_command_claim_upload()) {
             ret = CLIP_EVENT_BUSY;
         } else {
+            atomic_set(&active, 1);
             /* Initialize in event order. Clearing after BEGIN returns could
              * erase a button cancellation arriving before the worker wakes. */
             atomic_clear(&cancelled); atomic_clear(&stalled);
@@ -318,6 +273,7 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
         }
     } else if (event == CLIP_EVENT_UPLOAD_END) {
         atomic_clear(&active);
+        upload_command_release_upload();
         if (https_poc_record_pending() && atomic_get(&cleanup_error)) {
             atomic_set(&record_error, atomic_get(&cleanup_error));
             atomic_clear(&record_pending);

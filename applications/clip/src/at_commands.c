@@ -36,6 +36,7 @@
 #include "usb_cdc.h"
 #ifdef CONFIG_CLIP_HTTPS_POC
 #include "https_poc.h"
+#include "upload_command.h"
 #endif
 
 LOG_MODULE_REGISTER(at_commands, CONFIG_CLIP_LOG_LEVEL);
@@ -67,7 +68,12 @@ static void reboot_work_handler(struct k_work *work)
 static void schedule_reboot(int delay_ms, bool clear_bonds)
 {
     reboot_clear_bonds = clear_bonds;
-    k_work_schedule(&reboot_work, K_MSEC(delay_ms));
+    int scheduled = k_work_schedule(&reboot_work, K_MSEC(delay_ms));
+#ifdef CONFIG_CLIP_HTTPS_POC
+    if (scheduled >= 0) { upload_command_defer(); }
+#else
+    ARG_UNUSED(scheduled);
+#endif
 }
 
 static void pair_reset_work_handler(struct k_work *work)
@@ -873,6 +879,9 @@ static int cmd_pair_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
             return create_json_response(false, "Failed to schedule SD erase", NULL,
                                         response, len);
         }
+#ifdef CONFIG_CLIP_HTTPS_POC
+        upload_command_defer();
+#endif
 
         return create_json_response(true, NULL,
                                     "{\"rebooting\":true,\"sd_erase\":\"pending\"}",
@@ -884,10 +893,11 @@ static int cmd_pair_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
 
         if (bonded) {
             char data[64];
-            snprintf(data, sizeof(data), "\"paired\",\"addr\":\"%s\"", addr);
+            /* Preserve the legacy msg string, escaping its embedded quotes. */
+            snprintf(data, sizeof(data), "\\\"paired\\\",\\\"addr\\\":\\\"%s\\\"", addr);
             return create_json_response(true, data, NULL, response, len);
         } else {
-            return create_json_response(true, "\"unpaired\"", NULL, response, len);
+            return create_json_response(true, "\\\"unpaired\\\"", NULL, response, len);
         }
     }
 }

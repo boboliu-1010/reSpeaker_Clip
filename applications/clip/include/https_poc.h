@@ -10,7 +10,7 @@ bool https_poc_record_pending(void);
 int https_poc_set_time(int64_t timestamp);
 int https_poc_record_error(void);
 void https_poc_record_complete(enum clip_event_result result);
-bool https_poc_command_allowed(const char *name);
+int https_poc_command_begin(const char *name, uint8_t type);
 bool https_poc_event(enum clip_event event, struct clip_event_result_info *result,
                      bool device_idle);
 int wifi_station_connect(const char *ssid, const char *password, atomic_t *cancel);

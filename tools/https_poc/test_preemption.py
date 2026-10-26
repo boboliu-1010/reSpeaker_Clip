@@ -19,7 +19,7 @@ class PreemptionTest(unittest.TestCase):
         cancel = "static void request_cancel" + source.split("static void request_cancel", 1)[1].split(
             "static void stall_handler", 1)[0]
         getters = "bool https_poc_active" + source.split("bool https_poc_active", 1)[1].split(
-            "bool https_poc_command_allowed", 1)[0]
+            "int https_poc_command_begin", 1)[0]
         gate = "bool https_poc_event" + source.split("bool https_poc_event", 1)[1].split(
             "static int check_cancel", 1)[0]
         valid = "static bool valid_session" + source.split("static bool valid_session", 1)[1].split(
@@ -43,9 +43,14 @@ class PreemptionTest(unittest.TestCase):
 #define LOG_WRN(...) ((void)0)
 #define LOG_INF(...) ((void)0)
 #define K_NO_WAIT 0
+#define AT_CMD_TYPE_TEST 0
+#define AT_CMD_TYPE_SET 1
+#define AT_CMD_TYPE_EXEC 2
+#define AT_CMD_TYPE_READ 3
 #define TRANS_INVALID 255
 #define TRANS_SAME 254
 typedef int atomic_val_t;
+typedef int atomic_t;
 enum { UI_EVENT_WIFI_BLOCKED, UI_EVENT_USB_BLOCKED };
 static void display_post_event(int event) { (void)event; }
 enum clip_state { CLIP_STATE_IDLE, CLIP_STATE_RECORDING, CLIP_STATE_WIFI_SYNC };
@@ -58,7 +63,7 @@ static int active, cancelled, stalled, last_error, bytes_sent, stage, record_pen
 static int confirmed, resume_from, total_bytes;
 static int state_error, auto_job, auto_paused, activity;
 static int start_job, g_state, clip_ev_msgq, ota_in_progress;
-static bool audio_active, resources_released, inject_start;
+static bool audio_active, resources_released, inject_start, downloading;
 static int interrupts, record_starts, started_jobs;
 static enum clip_event_result recording_result = CLIP_EVENT_OK;
 static char ssid[33] = "fixture", host[96] = "receiver", session[32];
@@ -74,7 +79,7 @@ static void atomic_clear(int *v) { *v = 0; }
 static bool atomic_cas(int *v, int old, int n) { if (*v != old) return false; *v = n; return true; }
 static void k_sem_give(int *sem) { (*sem)++; }
 static bool audio_is_recording(void) { return audio_active; }
-static bool transfer_is_active(void) { return false; }
+static bool transfer_is_active(void) { return downloading; }
 static bool usb_cdc_is_enabled(void) { return false; }
 static void wifi_diag_reset(void) { started_jobs++; }
 static int k_msgq_get(int *msgq, struct clip_event_item *out, int wait) {
@@ -92,7 +97,9 @@ static enum clip_event_result execute_transition(enum clip_event event,
     return recording_result;
 }
 '''
-        code += cancel + getters + gate + valid + start + dispatch
+        policy = (ROOT / 'applications/clip/src/upload_command.c').read_text()
+        code += '\n'.join(line for line in policy.splitlines() if not line.startswith('#include'))
+        code += '\n' + cancel + getters + gate + valid + start + dispatch
         code += r'''
 static int clip_post_event_sync(enum clip_event event, struct clip_event_result_info *info) {
     assert(https_poc_event(event, info, g_state == CLIP_STATE_IDLE));
@@ -116,6 +123,14 @@ int main(int argc, char **argv) {
     memset(transition_table, TRANS_INVALID, sizeof(transition_table));
     transition_table[CLIP_STATE_IDLE][CLIP_EVENT_START] = CLIP_STATE_RECORDING;
     struct clip_event_result_info info;
+    assert(!upload_command_begin("DELETE",AT_CMD_TYPE_SET,true,false,false,false));
+    assert(https_poc_event(CLIP_EVENT_UPLOAD_BEGIN,&info,true));
+    assert(info.result==CLIP_EVENT_BUSY&&!active);
+    upload_command_end();
+    downloading=true;
+    assert(https_poc_event(CLIP_EVENT_UPLOAD_BEGIN,&info,true));
+    assert(info.result==CLIP_EVENT_BUSY&&!active);
+    downloading=false;
     char selector[] = "20261019070446:1";
     inject_start = !strcmp(argv[1], "startup-race");
     cancelled = stalled = last_error = bytes_sent = 1;

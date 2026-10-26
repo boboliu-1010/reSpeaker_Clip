@@ -49,7 +49,9 @@ class BuildProfilesTest(unittest.TestCase):
                 'CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS': '128', 'CONFIG_CLIP_DTLS_WINDOW_PACKETS': '128',
                 'CONFIG_CLIP_DTLS_READ_CACHE_BYTES': '8192', 'CONFIG_HEAP_MEM_POOL_SIZE': '81920',
                 'CONFIG_PSA_USE_CC3XX_AEAD_DRIVER': 'y', 'CONFIG_NET_PKT_BUF_TX_DATA_POOL_SIZE': '24576',
-                'CONFIG_CLIP_NETWORK_BACKPORT_ARP': 'y', 'CONFIG_NET_DHCPV4_INIT_REBOOT': 'n',
+                'CONFIG_CLIP_NETWORK_BACKPORT_ARP': 'y', 'CONFIG_NET_DHCPV4_INIT_REBOOT': 'y',
+                'CONFIG_CLIP_NETWORK_BACKPORT_DHCP': 'y', 'CONFIG_CLIP_DHCP_REBOOT_ATTEMPTS': '1',
+                'CONFIG_NRF_WIFI_RX_STBC_HT': 'y', 'CONFIG_CLIP_HTTPS_STA_PS_OFF': 'n',
             }.items():
                 self.assertEqual(values[key], value, (name,key))
 

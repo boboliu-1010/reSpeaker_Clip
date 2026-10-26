@@ -96,8 +96,17 @@ enable `CLIP_DTLS_UPLOAD`. DTLS uses direct mbedTLS over UDP: TCP and Zephyr's
 TLS socket wrapper are disabled. Certificate verification, DTLS encryption,
 Wi-Fi crypto and time synchronization remain enabled. HTTPS-only builds keep
 `https.conf`. The optimized DTLS preset no longer includes the TCP connection
-budget overlay. Transport cleanup leaves TLS buffers unchanged; `dtls-single`
+budget overlay. Its network recovery overlay enables DHCP remembered-lease
+reuse with the pinned DHCP fixes and retains the ARP fixes; one unanswered
+INIT-REBOOT probe falls back to discovery. Combined hardware recovery validation
+is still required; see [network backports](network-backports-0.1.2.md).
+Transport cleanup leaves TLS buffers unchanged; `dtls-single`
 explicitly reserves an80KiB heap.
+The maintained preset restores baseline HT receive STBC
+(`CONFIG_NRF_WIFI_RX_STBC_HT=y`) and no longer includes the historical
+`https-wifi-no-stbc.conf` comparison overlay. Station power policy remains
+unchanged. This enables reception capability, not a measured throughput gain;
+AP support and negotiated use still determine whether STBC is used on the link.
 
 For the maintained configuration, run the helper with `--preset dtls-single --production`:
 

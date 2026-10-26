@@ -336,58 +336,80 @@ int main(void) {
                             "-o", str(root / "test")], check=True)
             subprocess.run([str(root / "test")], check=True)
 
-    def test_resources_remain_readable_during_upload(self):
-        source = (ROOT / "applications/clip/src/https_poc.c").read_text()
-        policy = source.split("bool https_poc_command_allowed", 1)[1].split(
-            "bool https_poc_event", 1)[0]
+    def test_baseline_commands_and_upload_admission(self):
+        source = (ROOT / "applications/clip/src/upload_command.c").read_text()
+        policy = '\n'.join(line for line in source.splitlines() if not line.startswith('#include'))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            code = '#include <stdbool.h>\n#include <string.h>\n#include <assert.h>\n'
-            code += '#define CONFIG_CLIP_WIFI_DIAG 1\n#define IS_ENABLED(x) (x)\n'
-            code += '#define CONFIG_CLIP_DEBUG_INTERFACES 1\n#define CONFIG_CLIP_RESOURCE_STATS 1\n'
-            code += 'static bool busy, pending;\nstatic bool https_poc_active(void) {return busy;}\n'
-            code += 'static bool https_poc_record_pending(void) {return pending;}\n'
-            code += 'bool https_poc_command_allowed' + policy
-            code += '''
+            code = r'''
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <assert.h>
+#include <errno.h>
+#include <stdatomic.h>
+#define AT_CMD_TYPE_TEST 0
+#define AT_CMD_TYPE_SET 1
+#define AT_CMD_TYPE_EXEC 2
+#define AT_CMD_TYPE_READ 3
+typedef atomic_int atomic_t;
+static int atomic_get(atomic_t *p) {return atomic_load(p);}
+static bool atomic_cas(atomic_t *p,int old,int value) {return atomic_compare_exchange_strong(p,&old,value);}
+'''
+            code += policy + r'''
 int main(void) {
-    for (int state=0; state<2; state++) {
-        busy=state;
-        assert(https_poc_command_allowed("RES"));
-        assert(https_poc_command_allowed("NETDIAG"));
-        assert(https_poc_command_allowed("NETTRACE"));
-        assert(https_poc_command_allowed("NETTX"));
-        assert(https_poc_command_allowed("GSTAT"));
-        assert(!https_poc_command_allowed("PAIR"));
-        assert(!https_poc_command_allowed("DELETE"));
-        assert(!https_poc_command_allowed("WIFI"));
-#ifdef CONFIG_CLIP_WIFI_AUTH_LOG
-        assert(https_poc_command_allowed("LOG") == !busy);
-#else
-        assert(!https_poc_command_allowed("LOG"));
-#endif
-        assert(https_poc_command_allowed("UPLOADSTATE") == !busy);
+    const char *baseline[]={"GSTAT","BATT","STORAGE","DEVICE","VERSION","TIME","MODE","AUTODEL",
+      "BRIGHTNESS","POWEROFF","FACTORY","PAIR","REBOOT","DFU","START","STOP","PAUSE","RESUME",
+      "MARK","LIST","MARKS","DOWNLOAD","CANCEL","DELETE","FORMAT","WIFI","WIFICFG","NAME","USB","LOG"};
+    for (unsigned i=0;i<sizeof(baseline)/sizeof(*baseline);i++) {
+        assert(!upload_command_begin(baseline[i],AT_CMD_TYPE_SET,true,false,false,false));
+        upload_command_end();
+        assert(upload_command_claim_upload());upload_command_release_upload();
     }
-    assert(!https_poc_command_allowed("NETCFG"));
-    assert(!https_poc_command_allowed("UPLOADSTATE"));
-    assert(https_poc_command_allowed("START"));
-    assert(https_poc_command_allowed("STOP"));
-    busy=false;
-    pending=true;
-    assert(!https_poc_command_allowed("NETCFG"));
-    assert(!https_poc_command_allowed("LOG"));
-    assert(https_poc_command_allowed("START"));
-    pending=false;
-    assert(https_poc_command_allowed("START"));
+    const char *reads[]={"DEVICE","MODE","AUTODEL","BRIGHTNESS","NAME","PAIR","WIFI","WIFICFG",
+      "TIME","USB","LOG","GSTAT","BATT","VERSION","RES","NETDIAG","NETTRACE","NETTX",
+      "UPLOADNET","UPLOADPERF","UPLOAD","NETCFG","UPLOADAUTO"};
+    assert(upload_command_claim_upload());
+    for (unsigned i=0;i<sizeof(reads)/sizeof(*reads);i++) {
+        assert(!upload_command_begin(reads[i],AT_CMD_TYPE_READ,true,true,false,false));
+        upload_command_end();assert(!upload_command_claim_upload());
+    }
+    const char *blocked[]={"MODE","AUTODEL","BRIGHTNESS","NAME","PAIR","WIFI","WIFICFG","TIME",
+      "USB","LOG","DELETE","FORMAT","DOWNLOAD","CANCEL","FACTORY","REBOOT","DFU","POWEROFF",
+      "PAUSE","RESUME","MARK","LIST","MARKS","STORAGE"};
+    for (unsigned i=0;i<sizeof(blocked)/sizeof(*blocked);i++) {
+        assert(upload_command_begin(blocked[i],AT_CMD_TYPE_SET,true,true,false,false)==-EBUSY);
+    }
+    assert(!upload_command_begin("START",AT_CMD_TYPE_EXEC,true,true,false,false));
+    assert(!upload_command_begin("STOP",AT_CMD_TYPE_EXEC,true,true,false,false));
+    upload_command_release_upload();
+    /* A baseline command reserves storage before auto-upload can start. */
+    assert(!upload_command_begin("DELETE",AT_CMD_TYPE_SET,true,false,false,false));
+    assert(!upload_command_claim_upload());upload_command_end();
+    assert(upload_command_claim_upload());upload_command_release_upload();
+    /* Pending recording and ongoing download reject conflicting operations. */
+    assert(upload_command_begin("MODE",AT_CMD_TYPE_SET,true,false,true,false)==-EBUSY);
+    assert(upload_command_begin("FORMAT",AT_CMD_TYPE_EXEC,false,false,false,true)==-EBUSY);
+    assert(!upload_command_begin("CANCEL",AT_CMD_TYPE_EXEC,false,false,false,true));upload_command_end();
+    assert(!upload_command_begin("PAUSE",AT_CMD_TYPE_EXEC,false,false,false,false));
+    assert(!upload_command_begin("RESUME",AT_CMD_TYPE_EXEC,false,false,false,false));
+    assert(!upload_command_begin("MARK",AT_CMD_TYPE_EXEC,false,false,false,false));
+    /* Delayed erase/reboot keeps its reservation after the AT reply. */
+    assert(!upload_command_begin("PAIR",AT_CMD_TYPE_SET,true,false,false,false));
+    upload_command_defer();upload_command_end();
+    assert(!upload_command_claim_upload());
+    assert(!upload_command_begin("MODE",AT_CMD_TYPE_READ,true,false,false,false));upload_command_end();
+    assert(upload_command_begin("START",AT_CMD_TYPE_EXEC,true,false,false,false)==-EBUSY);
+    assert(upload_command_begin("DELETE",AT_CMD_TYPE_SET,true,false,false,false)==-EBUSY);
+    assert(!upload_command_claim_upload());
     return 0;
 }
 '''
-            for auth_log in (False, True):
-                prefix = '#define CONFIG_CLIP_WIFI_AUTH_LOG 1\n' if auth_log else ''
-                (root / "test.c").write_text(prefix + code)
-                subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                                "-fsanitize=address,undefined", "-I"+str(ROOT / "applications/clip/include"), str(root / "test.c"),
-                                "-o", str(root / "test")], check=True)
-                subprocess.run([str(root / "test")], check=True)
+            (root / "test.c").write_text(code)
+            subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined", str(root / "test.c"),
+                            "-o", str(root / "test")], check=True)
+            subprocess.run([str(root / "test")], check=True)
 
     def test_ip_certificate_matches_only_requested_address(self):
         with tempfile.TemporaryDirectory() as directory:

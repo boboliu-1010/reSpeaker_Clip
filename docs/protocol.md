@@ -1,8 +1,31 @@
 # reSpeaker Clip - BLE AT Protocol Specification
 
-> The optional `CLIP_HTTPS_POC` measurement build uses Wi-Fi Station with USB
-> CDC (no AP or USB disk). Its configuration/upload commands
-> and restrictions are documented in [HTTPS experiment](../tools/https_poc/README.md).
+> The maintained DTLS upload build retains the baseline AT command handlers,
+> including recording settings and BLE download. The optimized preset still
+> disables Wi-Fi AP support and USB disk; restoring command admission does not
+> enable these compiled-out components. Older HTTPS experiment
+> notes are in [HTTPS experiment](../tools/https_poc/README.md).
+
+Baseline command compatibility in the upload build:
+
+- Device/settings queries (`DEVICE`, `MODE?`, `AUTODEL?`, `BRIGHTNESS?`, `NAME?`,
+  `PAIR?`, `WIFI?`, `WIFICFG?`, `TIME?`, `USB?`, `LOG?`) remain available during
+  upload. Existing command flags and response formats are unchanged.
+- Baseline setting writes require idle state and no upload, pending recording
+  or phone download. `PAUSE`, `RESUME` and `MARK` are restored for recording;
+  `START`/`STOP` retain upload preemption and pending-start semantics below.
+- SD queries (`LIST`, `MARKS`, `STORAGE`) are rejected during upload or pending
+  recording. Download, delete, format, AP switching and device-management
+  operations reserve access against background uploads. AP switching additionally
+  requires an AP-capable build. `CANCEL` still cancels
+  the phone download; `UPLOADCANCEL` cancels the server upload.
+- Accepted delayed reboot/reset operations keep the reservation until reboot.
+  Baseline `PAIR=reset` includes SD erasure; this behavior has not been changed.
+  Busy operations return `ok:false` with
+  `msg:"Busy: upload or conflicting device operation"`.
+- Optional diagnostics remain controlled by their existing build options and
+  transport restrictions. Restoring baseline commands does not enable developer
+  interfaces in production.
 
 In that experimental build, START during an upload queues one recording request
 and returns `{"ok":true,"data":{"pending":true,"session":null}}`. It does not

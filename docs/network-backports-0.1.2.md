@@ -28,6 +28,20 @@ and is not backported. There is no new on-device AT API or persistent setting.
 
 ## Separate comparisons
 
+The maintained `dtls-single` preset now uses
+`applications/clip/https-network-backports.conf`: remembered-lease reuse,
+all four DHCP recovery fixes and all three ARP fixes are enabled together,
+with one INIT-REBOOT request before timeout-driven fallback to DISCOVER. A NAK
+in INIT-REBOOT immediately restarts discovery regardless of the old server.
+Default builds instrument the patched ARP copy; production uses the functional
+ARP copy without diagnostic hooks. DHCP always uses the build-local patched
+copy. Shared NCS sources remain unchanged.
+
+This configuration change is not hardware acceptance of stale-lease recovery
+or a claim that all Wi-Fi/ARP delays are resolved. It retains the earlier AT
+compatibility fix; device flashing and network fault validation are separate.
+The isolated profiles below are retained for reproducing historical comparisons.
+
 Keep `https.conf`, `runtime.conf`, `netdiag.conf`,
 `https-connect-budget.conf`, and `https-wifi-no-stbc.conf` in that order.
 Append exactly one of these configurations in an independent build directory:

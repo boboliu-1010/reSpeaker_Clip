@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 
 DTLS_CORE = (
-    "https-wifi-no-stbc.conf", "https-arp-backport.conf", "dtls-upload.conf",
+    "https-network-backports.conf", "dtls-upload.conf",
     "dtls-aead-hardware.conf", "dtls-upload-optimized.conf", "dtls-single.conf",
 )
 PRESETS = {

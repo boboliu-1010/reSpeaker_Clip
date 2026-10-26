@@ -52,6 +52,7 @@ static struct {
 /* Forward declarations */
 #ifdef CONFIG_CLIP_HTTPS_POC
 #include "https_poc.h"
+#include "upload_command.h"
 #endif
 static void at_server_thread_func(void *p1, void *p2, void *p3);
 
@@ -244,15 +245,6 @@ static void process_command(struct at_queue_item *item)
     /* Do not log arguments: commands may contain network credentials. */
     LOG_INF("AT command: %s type=%d", cmd_name, cmd_type);
 
-#ifdef CONFIG_CLIP_HTTPS_POC
-    if (!https_poc_command_allowed(cmd_name)) {
-        create_json_response(false, "Unavailable in HTTPS experiment or busy", NULL,
-                             at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
-        SEND_RESPONSE();
-        return;
-    }
-#endif
-
     /* Find command handler */
     struct at_cmd_ctx ctx = {
         .name = cmd_name,
@@ -292,7 +284,18 @@ static void process_command(struct at_queue_item *item)
             }
 
             /* Call handler */
+#ifdef CONFIG_CLIP_HTTPS_POC
+            if (https_poc_command_begin(cmd_name, cmd_type)) {
+                create_json_response(false, "Busy: upload or conflicting device operation", NULL,
+                                     at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
+                SEND_RESPONSE();
+                return;
+            }
+#endif
             ret = cmd->handler(&ctx, at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
+#ifdef CONFIG_CLIP_HTTPS_POC
+            upload_command_end();
+#endif
 
             if (ret < 0) {
                 /* Handler returned error, create error response */

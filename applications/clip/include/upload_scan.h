@@ -10,4 +10,7 @@ int upload_scan(upload_visit_fn visit, void *context, int (*check)(void));
 /* Skip strictly earlier session subtrees, for efficient cursor pages. */
 int upload_scan_after(upload_visit_fn visit, void *context, int (*check)(void),
                       const char *session);
+/* Scan only one canonical session, with the same sealed-file checks. */
+int upload_scan_session(const char *session, upload_visit_fn visit, void *context,
+                        int (*check)(void));
 #endif

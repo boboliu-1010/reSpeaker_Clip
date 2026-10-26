@@ -56,14 +56,20 @@ static void net_if_register_link_cb(struct net_if_link_cb *c,
     void (*fn)(struct net_if *, struct net_linkaddr *, int)) { (void)c; (void)fn; }
 struct net_stats {
     struct { uint64_t sent, received; } bytes;
-    struct { uint32_t sent, recv, drop; } ipv4, tcp;
+    struct { uint32_t sent, recv, drop; } ipv4;
+#ifdef CONFIG_NET_STATISTICS_TCP
+    struct { uint32_t sent, recv, drop; } tcp;
+#endif
     uint32_t processing_error;
 };
 static int queries;
 static int net_mgmt(int request, struct net_if *iface, void *out, size_t size) {
     assert(request == NET_REQUEST_STATS_GET_ALL && iface == &wifi);
     assert(size == sizeof(struct net_stats)); queries++;
-    struct net_stats s={.bytes={UINT64_C(0x100000002),3},.tcp={1,0,0}};
+    struct net_stats s={.bytes={UINT64_C(0x100000002),3}};
+#ifdef CONFIG_NET_STATISTICS_TCP
+    s.tcp.sent=1;
+#endif
     memcpy(out,&s,size); return 0;
 }
 struct at_cmd_ctx { int transport_type; const char *args; const char *name; };
@@ -88,6 +94,11 @@ int main(void) {
     diagnostic(&ctx,out,sizeof(out));
     assert(queries == 1); /* Cached reads never call network management. */
     assert(strstr(out,"\"valid\":true") && strstr(out,"\"tx_bytes\":2"));
+#ifdef CONFIG_NET_STATISTICS_TCP
+    assert(strstr(out,"\"tcp_tx\":1"));
+#else
+    assert(strstr(out,"\"tcp_tx\":0"));
+#endif
     assert(strstr(out,"\"result\":-116") && strstr(out,"\"flags\":11"));
     assert(strstr(out,"\"link_ok\":1") && strstr(out,"\"link_error\":1"));
     ctx.name="NETTRACE";
@@ -100,7 +111,7 @@ int main(void) {
     ctx.name="NETDIAG";
     char small[8];
     assert(diagnostic(&ctx,small,sizeof(small)) == -AT_ERR_NOMEM && small[0] == 0);
-    const char *bad[]={"", "4", "-1", "10", "0x0", NULL};
+    const char *bad[]={"", "5", "-1", "10", "0x0", NULL};
     for (unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++) {
         ctx.args=bad[i]; diagnostic(&ctx,out,sizeof(out));
         assert(strstr(out,"\"ok\":false"));
@@ -119,17 +130,52 @@ int main(void) {
     ctx.args="3"; diagnostic(&ctx,out,sizeof(out)); assert(strstr(out,"\"ok\":false"));
     ctx.args="0"; ctx.transport_type=0;
     diagnostic(&ctx,out,sizeof(out)); assert(strstr(out,"\"ok\":false"));
+    ctx.name="NETDIAG";ctx.args="4";ctx.transport_type=TRANSPORT_TYPE_USB;
+    assert(diagnostic(&ctx,out,sizeof(out))>0);
+    assert(strstr(out,"\"type\":\"wifi_join\"") && strstr(out,"\"valid\":false"));
+    int before_queries=queries;
+    wifi_diag_join_event(WIFI_JOIN_RESULT,17);assert(!join.attempt);
+    wifi_diag_join_begin(true);
+    wifi_diag_join_event(WIFI_JOIN_REQUEST,0);
+    wifi_diag_join_event(WIFI_JOIN_RESULT,17);
+    wifi_diag_join_event(WIFI_JOIN_REQUEST_RETURN,0);
+    wifi_diag_join_event(WIFI_JOIN_RESULT,0);
+    wifi_diag_join_event(WIFI_JOIN_DHCP,0);
+    wifi_diag_join_event(WIFI_JOIN_DISCONNECT,0);
+    wifi_diag_join_event(WIFI_JOIN_DISCONNECTED,3);
+    wifi_diag_join_event(WIFI_JOIN_DISCONNECT_RETURN,-120);
+    wifi_diag_join_event(WIFI_JOIN_DOWN,0);
+    wifi_diag_join_event(WIFI_JOIN_READY,0);
+    assert(join.connect_count==2 && join.first_status==17 && join.connect_status==0 && join.error_status==17);
+    assert(diagnostic(&ctx,out,sizeof(out))>0 && queries==before_queries);
+    assert(strstr(out,"\"error_status\":17") && strstr(out,"\"reason\":3,\"reason_valid\":true"));
+    assert(diagnostic(&ctx,small,sizeof(small))==-AT_ERR_NOMEM && small[0]==0);
+    wifi_diag_reset();assert(join.attempt==1 && join.error_status==17);
+    wifi_diag_join_begin(false);assert(join.attempt==2 && !join.seen && !join.error_status);
+    wifi_diag_join_event(WIFI_JOIN_DISCONNECTED_NO_INFO,0);
+    assert(join.disconnect_count==1 && !join.disconnect_valid);
+    wifi_diag_join_event((enum wifi_join_event)-1,99);assert(!join.error_status);
+    /* Worst-case counters and signed status values must still fit the AT buffer. */
+    memset(&join,0xff,sizeof(join));
+    join.request_result=join.first_status=join.connect_status=join.error_status=INT32_MIN;
+    join.disconnect_result=join.disconnect_reason=join.down_result=INT32_MIN;
+    join.ready_value=join.initial_ready=1;
+    assert(diagnostic(&ctx,out,sizeof(out))>0 && strlen(out)<sizeof(out));
+    wifi_diag_join_begin(false);assert(join.attempt==1); /* Skip zero after wrap. */
+    ctx.name="NETTRACE";diagnostic(&ctx,out,sizeof(out));assert(strstr(out,"\"ok\":false"));
+    ctx.name="NETDIAG";ctx.transport_type=0;diagnostic(&ctx,out,sizeof(out));assert(strstr(out,"\"ok\":false"));
     return 0;
 }
 '''
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "test.c").write_text(fixture + source + checks)
-            subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-fsanitize=address,undefined", "-I",
-                            str(ROOT / "applications/clip/include"), str(root / "test.c"),
-                            "-o", str(root / "test")], check=True)
-            subprocess.run([str(root / "test")], check=True)
+            for options in ([], ["-DCONFIG_NET_STATISTICS_TCP=1"]):
+                subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                "-fsanitize=address,undefined", *options, "-I",
+                                str(ROOT / "applications/clip/include"), str(root / "test.c"),
+                                "-o", str(root / "test")], check=True)
+                subprocess.run([str(root / "test")], check=True)
 
 
 if __name__ == "__main__":

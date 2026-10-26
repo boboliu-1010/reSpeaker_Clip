@@ -7,7 +7,58 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class BatchWorkerTest(unittest.TestCase):
-    def test_batch_reuse_legacy_close_reconnect_cancel_and_cleanup_failures(self):
+    def test_network_check_reuses_worker_and_cleans_up_success_failure_and_recording_cancel(self):
+        code = self.worker_fixture().split('int main(', 1)[0]
+        point = code.index('static int upload_file(')
+        adapter = r'''
+static int app_lock,checking_network=1,network_result,network_cleanup,reported;
+static int control_lock;
+static int64_t next_auto;
+#define K_FOREVER 0
+static void k_mutex_lock(int*m,int wait){(void)wait;assert(!*m);*m=1;}
+static void k_mutex_unlock(int*m){assert(*m);*m=0;}
+static int app_segment;
+static char app_session[15];
+typedef int k_spinlock_key_t;
+static int k_spin_lock(int*m){assert(!*m);*m=1;return 0;}
+static void k_spin_unlock(int*m,int key){(void)key;assert(*m);*m=0;}
+struct wifi_station_network {char ip[16],netmask[16],gateway[16];};
+#include "upload_app.h"
+static void wifi_station_get_network(struct wifi_station_network*n){strcpy(n->ip,"192.168.2.180");}
+void upload_app_publish(const char*type){(void)type;assert(0);}
+void https_poc_app_status(struct upload_app_status*out){(void)out;assert(0);}
+void upload_app_publish_result(const char*type,const struct upload_app_status*out){(void)type;(void)out;assert(0);}
+static void app_network_done(int ret,const struct wifi_station_network*n,int cleanup){
+ assert(checking_network&&!radio&&!buffers&&!active&&cleanup==network_cleanup);reported++;checking_network=0;
+ assert(ret==network_result||ret==network_cleanup);if(!network_result)assert(!strcmp(n->ip,"192.168.2.180"));
+}
+'''
+        code = '#define CONFIG_CLIP_UPLOAD_APP 1\n'+code[:point]+adapter+code[point:]
+        code = code.replace('radio=true;wifi_starts++;return 0;',
+                            'radio=true;wifi_starts++;if(network_result==-ECANCELED)cancelled=1;return network_result;')
+        # These adapter values must precede the original Wi-Fi stub.
+        code = code.replace('static int app_lock,checking_network=1,network_result,network_cleanup,reported;',
+                            'static int app_lock,checking_network=1,reported;')
+        code = 'static int network_result,network_cleanup;\n'+code
+        code = code.replace('if(ended)longjmp(done,1);return 1;', 'if(ended)longjmp(done,1);return 0;')
+        code = code.replace('return mode==RADIO_ERROR?-EIO:0;', 'return network_cleanup;')
+        code += r'''
+int main(int argc,char**argv){
+ assert(argc==2);mode=atoi(argv[1]);active=1;auto_job=0;
+ network_result=mode==1?-ENETUNREACH:mode==2?-ECANCELED:0;
+ network_cleanup=mode==3?-EIO:0;
+ if(!setjmp(done))worker(NULL,NULL,NULL);
+ assert(ended&&!active&&!checking_network&&reported==1&&!uploads&&!connections&&!buffers);
+ assert(last_scheduled==(network_result?network_result:network_cleanup));
+ assert(stage==(mode==2?CANCELLED:mode?FAILED:SUCCEEDED));
+ assert(next_auto==now+5000);return 0;
+}
+'''
+        for mode in range(4):
+            with self.subTest(mode=mode):
+                compile_run(code, [str(mode)])
+
+    def worker_fixture(self):
         source = (ROOT/'applications/clip/src/https_poc.c').read_text()
         worker = source[source.index('static int upload_file('):source.index('/* Full ECDSA handshakes')]
         code = r'''
@@ -20,6 +71,7 @@ class BatchWorkerTest(unittest.TestCase):
 #include <errno.h>
 #include <setjmp.h>
 #include "upload_state.h"
+#include "recording_hash.h"
 #define ARG_UNUSED(x) (void)(x)
 #define K_SECONDS(x) (x)
 #define K_MSEC(x) (x)
@@ -132,6 +184,80 @@ int main(int argc,char **argv){
  assert(connections==disconnects);return 0;
 }
 '''
+        return code
+
+    def test_batch_reuse_legacy_close_reconnect_cancel_and_cleanup_failures(self):
+        code = self.worker_fixture()
         for mode in range(13):
             with self.subTest(mode=mode):
                 compile_run(code, [str(mode)])
+
+    def test_dtls_reuses_connection_and_releases_cpu_and_handles_before_recording(self):
+        code = self.worker_fixture()
+        point = code.index('static int upload_file(')
+        adapter = r"""
+#define dtls_upload https_stream
+static struct https_stream *datagram;
+static int datagram_received;
+static const char host[]="receiver",port[]="9527";
+static const unsigned char https_ca[]="CA";
+int upload_state_load(const char*id,uint32_t n,struct upload_file_record*r){(void)id;(void)n;(void)r;return -ENOENT;}
+static void digest_text(const uint8_t*d,char*out){for(int i=0;i<32;i++)snprintf(out+2*i,3,"%02x",d[i]);}
+static int dtls_upload_open(struct https_stream**s,const char*h,const char*p,const unsigned char*ca,size_t n,int(*check)(void)){
+ (void)h;(void)p;(void)ca;(void)n;assert(!check());return tls_connect(s);
+}
+static void dtls_upload_close(struct https_stream*s){https_stream_close(s);}
+static int send_datagram_file(const struct upload_file_record*stamp){assert(stamp->size==file_length);return upload(datagram);}
+static void clip_cpu_boost_acquire(void){assert(!boosts);boosts++;}
+static void clip_cpu_boost_release(void){assert(boosts==1);boosts--;}
+"""
+        code = '#define CONFIG_CLIP_DTLS_UPLOAD 1\n#define TLS_SETUP_HANDSHAKE 2\nstatic int boosts;\n' + code[:point] + adapter + code[point:]
+        code = code.replace('active=0;ended=1;return 0;', 'assert(!boosts);active=0;ended=1;return 0;')
+        # Legacy HTTP Connection:close has no DTLS equivalent. All other
+        # failure, cancellation, rolling-window and cleanup scenarios apply.
+        for mode in [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+            with self.subTest(mode=mode):
+                compile_run(code, [str(mode)])
+        # Deletion is entered only after COMPLETE, close and journal success.
+        # Its own I/O error must not change a successful upload into a retry.
+        cleanup_adapter = r"""
+#define CONFIG_CLIP_UPLOAD_AUTODELETE 1
+static int delete_error,delete_calls;
+static struct {
+ unsigned index,first_count;
+ struct {char session[15];uint32_t segment;} first[8];
+} *auto_batch;
+static int upload_cleanup_session(const char*id,const uint8_t dest[32],int(*cancel)(void)){
+ assert(!strcmp(id,session)&&dest[0]==0xbb&&!cancel()&&!file.open);
+ assert(stored>0&&confirmed==(int)file_length);delete_calls++;return -EIO;
+}
+"""
+        cleanup_code = code.replace('static int upload_file(', cleanup_adapter+'\nstatic int upload_file(', 1)
+        cleanup_code = cleanup_code.replace('assert(connections==disconnects);return 0;',
+            'assert(connections==disconnects);assert(delete_calls==(mode==REUSE?3:mode==METADATA?1:0));'
+            'if(delete_calls)assert(delete_error==-EIO);return 0;')
+        for mode in (0,5,6,7):
+            with self.subTest(auto_delete_mode=mode):
+                compile_run(cleanup_code,[str(mode)])
+
+        # Exercise the actual upload decision: recording cache hit avoids data
+        # reads; missing/corrupt/I/O-failed cache falls back, save failure is optional.
+        for error in (0, '-ENOENT', '-EBADMSG', '-EIO'):
+            adapter = r'''
+static int record_reads,record_saves;
+int recording_hash_load(const char*s,uint32_t n,uint32_t z,uint8_t d[32]){
+ assert(!strcmp(s,session)&&n==segment&&z==file_length);record_reads++;memset(d,0xaa,32);return CACHE_ERROR;
+}
+int recording_hash_save(const char*s,uint32_t n,uint32_t z,const uint8_t d[32]){
+ assert(!strcmp(s,session)&&n==segment&&z==file_length&&d[0]==0xaa);record_saves++;return -EIO;
+}
+'''
+            cached = code.replace('static int upload_file(', adapter+'\nstatic int upload_file(', 1)
+            cached = cached.replace('static int hash_file(void){assert(file.open);return 0;}',
+                                    'static int hash_file(void){assert(file.open);hash_calls++;return 0;}')
+            cached = cached.replace('assert(connections==disconnects);return 0;',
+                                    'assert(connections==disconnects);assert(record_reads==3);'
+                                    'assert(hash_calls==(CACHE_ERROR?3:0));assert(record_saves==(CACHE_ERROR?3:0));return 0;')
+            cached = '#define CONFIG_CLIP_RECORDING_HASH 1\n#define CACHE_ERROR '+str(error)+'\nstatic int hash_calls;\n'+cached
+            with self.subTest(cache_error=error):
+                compile_run(cached, ['0'])

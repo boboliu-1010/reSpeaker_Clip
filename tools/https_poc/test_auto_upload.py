@@ -77,6 +77,46 @@ int main(void){
  disk_size--;assert(upload_config_init(&out)==-EBADMSG&&!out.enabled);
  assert(upload_config_save(&c)==0);write_error=1;assert(upload_config_save(&c)==-EIO&&upload_config_clear()==-EIO);write_error=0;
  assert(upload_config_clear()==0);assert(upload_config_init(&out)==0&&!out.enabled);
+ /* A fresh device can persist Wi-Fi alone and reload it after boot, without
+  * accidentally becoming upload-ready or accepting incomplete enrollment. */
+ struct upload_config network={.ssid="phone-net",.password="phone-pass",.clock_host="clock.example",.clock_port="123"};
+ assert(!upload_config_valid(&network));
+ assert(upload_config_save(&network)==0);
+ memset(&out,0,sizeof(out));assert(upload_config_init(&out)==0);
+ assert(!strcmp(out.ssid,"phone-net")&&!strcmp(out.password,"phone-pass"));
+ assert(!out.enabled&&!out.host[0]&&!upload_config_valid(&out));
+ network.enabled=1;assert(upload_config_save(&network)==-EINVAL);network.enabled=0;
+ strcpy(network.host,"incomplete.example");assert(upload_config_save(&network)==-EINVAL);network.host[0]=0;
+ write_error=1;strcpy(network.ssid,"replacement");assert(upload_config_save(&network)==-EIO);write_error=0;
+ assert(upload_config_init(&out)==0&&!strcmp(out.ssid,"phone-net"));
+ struct upload_config before=out;
+ write_error=1;assert(upload_config_save_network(&out,"new-phone","new-password")==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_save_network(&out,"new-phone","new-password")==0);
+ assert(!strcmp(out.ssid,"new-phone")&&!upload_config_valid(&out));
+ assert(upload_config_init(&out)==0&&!strcmp(out.ssid,"new-phone"));
+ assert(upload_config_clear()==0);assert(upload_config_init(&out)==0&&!out.ssid[0]);
+ out=c;assert(upload_config_save_enabled(&out,1)==0&&out.enabled);
+ assert(upload_config_init(&out)==0&&out.enabled);
+ before=out;write_error=1;assert(upload_config_save_enabled(&out,0)==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_init(&out)==0&&out.enabled);
+ assert(upload_config_save_enabled(&out,0)==0&&!out.enabled);
+ assert(upload_config_init(&out)==0&&!out.enabled);
+ assert(upload_config_forget(&out,UPLOAD_FORGET_WIFI)==0&&!out.ssid[0]&&out.host[0]&&!out.enabled);
+ assert(upload_config_init(&out)==0&&!out.ssid[0]&&out.host[0]);
+ assert(!upload_config_valid(&out));
+ assert(upload_config_save_network(&out,"restored-net","restored-pass")==0);
+ assert(upload_config_valid(&out));
+ before=out;write_error=1;assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==-EIO);
+ assert(!memcmp(&before,&out,sizeof(out)));write_error=0;
+ assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==0&&out.ssid[0]&&!out.host[0]&&!out.enabled);
+ assert(upload_config_init(&out)==0&&out.ssid[0]&&!out.host[0]);
+ assert(upload_config_save_receiver(&out,"new.receiver","9527","new-device","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")==0);
+ assert(upload_config_valid(&out));
+ assert(upload_config_forget(&out,UPLOAD_FORGET_WIFI)==0);
+ assert(upload_config_forget(&out,UPLOAD_FORGET_RECEIVER)==0);
+ assert(upload_config_init(&out)==0&&!out.host[0]&&!out.ssid[0]);
  assert(!watches);return 0;
 }
 '''
@@ -200,12 +240,27 @@ int main(void){
  assert(refill_auto_batch()==1&&auto_batch->first_count==1);
  assert(next_auto_file()&&segment==1); /* Wrap discovers earlier/new work. */
  items[0].state=UPLOAD_STORED;assert(refill_auto_batch()==0);
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+ /* A measurement replays stored files in exactly one session, once only. */
+ cursor_session[0]=0;cursor_segment=0;
+ strcpy(measurement_session,items[0].id);
+ assert(refill_auto_batch()==1&&auto_batch->first_count==3);
+ for(unsigned n=1;n<=3;n++)assert(next_auto_file()&&segment==n&&!strcmp(session,measurement_session));
+ assert(refill_auto_batch()==0); /* Must not wrap and replay forever. */
+ strcpy(measurement_session,items[3].id);cursor_session[0]=0;cursor_segment=0;
+ assert(refill_auto_batch()==0); /* Active/unsealed recording stays excluded. */
+ auto_job=1;schedule_after_job(0);assert(!measurement_session[0]);
+ auto_batch=k_calloc(1,sizeof(*auto_batch));
+#endif
  k_free(auto_batch);auto_batch=NULL;
  allocation_failure=1;now=next_auto;assert(!begin_auto()&&!active&&!auto_job&&scan_error==-ENOMEM&&!auto_batch);
  return 0;
 }
 '''
         compile_run(code)
+        diagnostic = code.replace('static char cursor_session[15],session[32];',
+                                  'static char cursor_session[15],session[32],measurement_session[15];')
+        compile_run('#define CONFIG_CLIP_DTLS_PREPARE_MEASURE 1\n' + diagnostic)
 
     def test_filesystem_scan_exceeds_session_limit_and_cleans_up_on_cancel(self):
         import datetime
@@ -287,6 +342,15 @@ static int visit(const char *s,uint32_t i,uint32_t size,bool sealed,void *ctx){
 int main(int argc,char **argv){
  assert(argc==2);root=argv[1];assert(upload_scan(visit,&count,check)==0);
  assert(count==206&&sealed_count==205&&large==1&&!handles&&!files);
+ count=sealed_count=large=0;
+ assert(upload_scan_session("20261020000000",visit,&count,check)==0);
+ assert(count==2&&sealed_count==2&&large==1&&!handles&&!files);
+ count=sealed_count=large=0;
+ assert(upload_scan_session("20261020000324",visit,&count,check)==0);
+ assert(count==1&&!sealed_count&&!handles&&!files);
+ assert(upload_scan_session(NULL,visit,&count,check)==-EINVAL);
+ assert(upload_scan_session("short",visit,&count,check)==-EINVAL);
+
  count=sealed_count=large=0;
  assert(upload_scan_after(visit,&count,check,"20261020000320")==0);
  assert(count==5&&sealed_count==4&&!large&&!handles&&!files);

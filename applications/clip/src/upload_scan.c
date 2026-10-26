@@ -131,3 +131,25 @@ int upload_scan(upload_visit_fn visit, void *context, int (*check)(void))
 {
     return upload_scan_after(visit, context, check, NULL);
 }
+
+int upload_scan_session(const char *session, upload_visit_fn visit, void *context,
+                        int (*check)(void))
+{
+    if (!session || strlen(session)!=14 || !visit || !check) { return -EINVAL; }
+    int ret = storage_ensure_mounted();
+    if (ret) { return ret; }
+    struct scan *scan = k_calloc(1, sizeof(*scan));
+    if (!scan) { return -ENOMEM; }
+    ret = storage_build_session_metadata_path(session, scan->path, sizeof(scan->path));
+    if (!ret) {
+        char *tail = strrchr(scan->path, '/');
+        if (!tail || strlen(session) != 14) { ret = -EINVAL; }
+        else { *tail = 0; strcpy(scan->session, session); }
+    }
+    scan->visit = visit; scan->context = context; scan->check = check;
+    bool sealed = false;
+    if (!ret) { ret = sealed_session(scan, &sealed); }
+    if (!ret) { ret = walk(scan, 4, sealed); }
+    k_free(scan);
+    return ret;
+}

@@ -5,15 +5,30 @@ cmake_minimum_required(VERSION 3.20)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(clip)
 
-if(CONFIG_CLIP_NETWORK_BACKPORT_DHCP)
+if(CONFIG_CLIP_NETWORK_BACKPORT_DHCP OR
+   (CONFIG_CLIP_NETWORK_BACKPORT_ARP AND NOT CONFIG_CLIP_WIFI_DIAG))
     include(network-backports.cmake)
 endif()
 
 target_sources_ifdef(CONFIG_CLIP_RESOURCE_STATS app PRIVATE src/resource_stats.c)
 target_sources_ifdef(CONFIG_CLIP_WIFI_DIAG app PRIVATE src/wifi_diag.c)
+target_sources_ifdef(CONFIG_CLIP_TCP_TRACE app PRIVATE src/tcp_trace.c)
 if(CONFIG_CLIP_WIFI_DIAG)
     target_sources(app PRIVATE src/wifi_trace.c)
     include(wifi-trace.cmake)
+endif()
+
+# TLS timing uses a generated source copy so LTO cannot bypass the AEAD hooks.
+if(CONFIG_CLIP_DTLS_PROFILE)
+    target_sources(app PRIVATE src/dtls_profile.c)
+    execute_process(COMMAND "${PYTHON_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/https_poc/instrument_dtls_crypto.py"
+        --zephyr "${ZEPHYR_BASE}" --output "${_trace_dir}/ssl_msg.c"
+        RESULT_VARIABLE _dtls_timing_result)
+    if(NOT _dtls_timing_result EQUAL 0)
+        message(FATAL_ERROR "Pinned SDK DTLS timing could not be generated")
+    endif()
+    clip_trace_source(mbedtls ../modules/crypto/mbedtls/library/ssl_msg.c)
 endif()
 
 # Include directories
@@ -83,8 +98,16 @@ if(CONFIG_CLIP_HTTPS_POC)
     file(WRITE "${PROJECT_BINARY_DIR}/https_ca.h"
         "static const unsigned char https_ca[] = {${_ca_bytes}0};\n")
     target_include_directories(app PRIVATE "${PROJECT_BINARY_DIR}")
-    target_sources(app PRIVATE src/wifi_station.c src/https_poc.c src/https_stream.c src/upload_state.c src/upload_config.c src/upload_scan.c)
+    target_sources(app PRIVATE src/wifi_station.c src/https_poc.c src/upload_state.c src/upload_config.c src/upload_scan.c)
+    target_sources_ifdef(CONFIG_CLIP_RECORDING_HASH app PRIVATE src/recording_hash.c)
     target_sources_ifdef(CONFIG_CLIP_HTTPS_PROFILE app PRIVATE src/upload_perf.c)
+    target_sources_ifdef(CONFIG_CLIP_UPLOAD_APP app PRIVATE src/upload_app.c)
+    target_sources_ifdef(CONFIG_CLIP_UPLOAD_AUTODELETE app PRIVATE src/upload_cleanup.c)
+    if(CONFIG_CLIP_DTLS_UPLOAD)
+        target_sources(app PRIVATE src/dtls_upload.c src/upload_window.c)
+    else()
+        target_sources(app PRIVATE src/https_stream.c)
+    endif()
 else()
     target_sources(app PRIVATE src/wifi.c)
 endif()

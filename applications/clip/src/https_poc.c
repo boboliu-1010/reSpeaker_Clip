@@ -15,10 +15,38 @@
 #include "https_poc.h"
 #include "config.h"
 #include "https_stream.h"
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+#include "dtls_upload.h"
+static struct dtls_upload *datagram;
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+static struct dtls_upload_stats last_datagram;
+#endif
+static atomic_t datagram_received;
+static uint32_t cache_offset, cache_length;
+#ifdef CONFIG_CLIP_DTLS_PROFILE
+static uint16_t datagram_initial_window = CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS;
+static uint16_t datagram_window_ceiling = CONFIG_CLIP_DTLS_WINDOW_PACKETS;
+#endif
+static uint16_t datagram_cache_bytes = CONFIG_CLIP_DTLS_READ_CACHE_BYTES;
+static uint8_t *datagram_cache;
+BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_PACKETS,
+             "Initial DTLS window must not exceed its ceiling");
+#endif
 #include "upload_perf.h"
+#ifdef CONFIG_CLIP_UPLOAD_APP
+#include "upload_app.h"
+#endif
+#ifdef CONFIG_CLIP_TCP_TRACE
+#include "tcp_trace.h"
+#endif
 #include "upload_state.h"
+#include "recording_hash.h"
 #include "upload_config.h"
 #include "upload_scan.h"
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+#include "upload_cleanup.h"
+static atomic_t delete_error;
+#endif
 #include "wifi_diag.h"
 #include "wifi_trace.h"
 #include "at_server.h"
@@ -32,11 +60,13 @@ BUILD_ASSERT(IS_ENABLED(CONFIG_PSA_WANT_ALG_ECDSA) &&
              "The HTTPS experiment's EC test certificates require ECDHE-ECDSA support");
 #define MAX_FILE (8U * 1024U * 1024U)
 #define UPLOAD_CHUNK (16U * 1024U)
+#ifndef CONFIG_CLIP_DTLS_UPLOAD
 #define CONNECT_BUDGET_MS (CONFIG_NET_SOCKETS_CONNECT_TIMEOUT + \
                            CONFIG_NET_SOCKETS_TLS_CONNECT_TIMEOUT)
 BUILD_ASSERT(CONFIG_NET_SOCKETS_CONNECT_TIMEOUT > 0 &&
              CONFIG_NET_SOCKETS_TLS_CONNECT_TIMEOUT > 0 && CONNECT_BUDGET_MS <= 30000,
              "HTTPS requires bounded TCP + TLS connection timeouts (at most 30 seconds)");
+#endif
 static atomic_t active, cancelled, stage, last_error, bytes_sent;
 static atomic_t confirmed, resume_from, total_bytes;
 static atomic_t state_error;
@@ -47,7 +77,13 @@ enum { TLS_SETUP_IDLE, TLS_SETUP_DNS, TLS_SETUP_SOCKET, TLS_SETUP_CERTIFICATE,
        TLS_SETUP_RECEIVE_TIMEOUT, TLS_SETUP_HANDSHAKE, TLS_SETUP_HTTP };
 static atomic_t tls_step;
 static const char *const tls_steps[] = {"idle", "resolve", "socket", "certificate",
-    "peer_verify", "hostname", "send_timeout", "receive_timeout", "handshake", "http"};
+    "peer_verify", "hostname", "send_timeout", "receive_timeout", "handshake",
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    "datagram"
+#else
+    "http"
+#endif
+};
 static K_SEM_DEFINE(start_job, 0, 1);
 static struct upload_config *configuration;
 #define settings (*configuration)
@@ -63,6 +99,10 @@ static int config_error, scan_error;
 static bool config_saved;
 static uint32_t failures, cursor_segment;
 static char cursor_session[15];
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+static char measurement_session[15];
+static bool measurement_fresh_hash;
+#endif
 static int64_t next_auto, time_synced_at;
 static atomic_val_t observed_activity;
 static char session[32];
@@ -73,17 +113,31 @@ static struct fs_file_t file;
 /* Allocate only during a job, from the same heap as TLS. This saves static
  * reservation, not peak upload memory; allocation failure is a normal error. */
 static struct upload_buffers {
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    uint8_t file_io[4096];
+#else
     uint8_t file_io[2048], receive[2048];
     char body[1025];
+#endif
 } *buffers;
 #define io (buffers->file_io)
+static char expected_hash[65];
+static size_t file_length;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+static struct k_spinlock app_lock;
+static atomic_t checking_network, app_enabled, app_job_network;
+static uint32_t app_job, app_segment;
+static char app_session[15];
+static struct upload_app_network app_network = {.state="idle"};
+#endif
+#ifndef CONFIG_CLIP_DTLS_UPLOAD
 #define recv_buffer (buffers->receive)
 #define response_body (buffers->body)
-static char expected_hash[65];
-static size_t response_length, file_length, header_bytes;
+static size_t response_length, header_bytes;
 static bool response_final;
 static bool response_keep_alive;
 static int response_status;
+#endif
 
 /* Wall time uses libc time()/CLOCK_REALTIME; TLS timers use monotonic uptime. */
 mbedtls_ms_time_t mbedtls_ms_time(void) { return k_uptime_get(); }
@@ -118,6 +172,57 @@ enum { IDLE, PREPARING, CONNECTING, TLS, SENDING, VERIFYING, SUCCEEDED, FAILED, 
 static const char *const names[] = {"idle", "preparing", "connecting", "tls", "sending",
     "verifying", "succeeded", "failed", "cancelled"};
 
+#ifdef CONFIG_CLIP_UPLOAD_APP
+void https_poc_app_status(struct upload_app_status *out)
+{
+    memset(out, 0, sizeof(*out));
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    out->job = app_job; out->segment = app_segment;
+    memcpy(out->session, app_session, sizeof(out->session));
+    out->stage = names[atomic_get(&stage)];
+    out->active = https_poc_active();
+    out->network_check = atomic_get(&app_job_network);
+    out->automatic = atomic_get(&auto_job);
+    out->enabled = atomic_get(&app_enabled); out->paused = atomic_get(&auto_paused);
+    out->sent = atomic_get(&bytes_sent); out->confirmed = atomic_get(&confirmed);
+    out->size = atomic_get(&total_bytes); out->error = atomic_get(&last_error);
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    out->delete_after_upload = true;
+    out->delete_error = atomic_get(&delete_error);
+#endif
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    out->received = atomic_get(&datagram_received);
+#else
+    out->received = out->confirmed;
+#endif
+    k_spin_unlock(&app_lock, key);
+}
+void https_poc_app_network(struct upload_app_network *out)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    *out = app_network;
+    k_spin_unlock(&app_lock, key);
+}
+static void app_reset_network(const char *state)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    memset(&app_network, 0, sizeof(app_network)); app_network.state = state; app_network.job = app_job;
+    k_spin_unlock(&app_lock, key);
+}
+static void app_network_done(int ret, const struct wifi_station_network *network, int cleanup)
+{
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    app_network.state = ret == -ECANCELED ? "cancelled" : ret ? "failed" : "succeeded";
+    app_network.checked_ms = (uint32_t)k_uptime_get();
+    app_network.error = ret; app_network.cleanup_error = cleanup;
+    if (network) { memcpy(app_network.ip, network->ip, sizeof(app_network.ip)); }
+    struct upload_app_network result = app_network;
+    k_spin_unlock(&app_lock, key);
+    atomic_clear(&checking_network);
+    upload_app_publish_network(&result);
+}
+#endif
+
 bool https_poc_active(void) { return atomic_get(&active); }
 bool https_poc_record_pending(void) { return atomic_get(&record_pending); }
 int https_poc_record_error(void) { return atomic_get(&record_error); }
@@ -132,10 +237,24 @@ void https_poc_record_complete(enum clip_event_result result)
 
 bool https_poc_command_allowed(const char *name)
 {
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+    if (!strcmp(name, "DELETE")) {
+        return !https_poc_active() && !https_poc_record_pending() &&
+               !settings.enabled && clip_event_get_state() == CLIP_STATE_IDLE;
+    }
+#endif
     /* Read-only instrumentation must remain available during TLS/upload. */
+#ifdef CONFIG_CLIP_RESOURCE_STATS
     if (!strcmp(name, "RES")) { return true; }
+#endif
+#ifdef CONFIG_CLIP_TCP_TRACE
+    if (!strcmp(name, "TCPTRACE")) { return true; }
+#endif
 #ifdef CONFIG_CLIP_HTTPS_PROFILE
     if (!strcmp(name, "UPLOADPERF")) { return true; }
+#endif
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
+    if (!strcmp(name, "UPLOADNET")) { return true; }
 #endif
     if (IS_ENABLED(CONFIG_CLIP_WIFI_DIAG) &&
         (!strcmp(name, "NETDIAG") || !strcmp(name, "NETTRACE") || !strcmp(name, "NETTX"))) {
@@ -145,18 +264,29 @@ bool https_poc_command_allowed(const char *name)
      * commands which could outlive the AT handler and race a subsequent job. */
     if (https_poc_active() || https_poc_record_pending()) {
         return !strcmp(name, "UPLOAD") || !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "UPLOADAUTO") ||
+#ifdef CONFIG_CLIP_UPLOAD_APP
+               !strcmp(name, "NETCHECK") || !strcmp(name, "NETCFG") ||
+#endif
                !strcmp(name, "START") || !strcmp(name, "STOP") ||
                !strcmp(name, "GSTAT") || !strcmp(name, "BATT") || !strcmp(name, "VERSION");
     }
+#ifdef CONFIG_CLIP_WIFI_AUTH_LOG
+    if (!strcmp(name, "LOG")) { return true; }
+#endif
     return !strcmp(name, "NETCFG") || !strcmp(name, "UPLOADCFG") ||
-           !strcmp(name, "UPTIME") || !strcmp(name, "UPLOAD") ||
+#ifdef CONFIG_CLIP_UPLOAD_APP
+           !strcmp(name, "NETCHECK") ||
+#endif
+           !strcmp(name, "UPLOAD") ||
            !strcmp(name, "UPLOADCANCEL") || !strcmp(name, "USB") ||
            !strcmp(name, "GSTAT") || !strcmp(name, "BATT") ||
            !strcmp(name, "VERSION") || !strcmp(name, "LIST") ||
            !strcmp(name, "START") || !strcmp(name, "STOP") ||
            !strcmp(name, "UPLOADSTATE") || !strcmp(name, "UPLOADLIST") ||
-           !strcmp(name, "UPLOADAUTO") || !strcmp(name, "UPLOADSAVE") ||
+           !strcmp(name, "UPLOADAUTO") ||
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
            !strcmp(name, "UPLOADCLEAR") || !strcmp(name, "UPLOADCLOCK") ||
+#endif
            !strcmp(name, "TIME") || !strcmp(name, "STORAGE");
 }
 
@@ -179,6 +309,12 @@ bool https_poc_event(enum clip_event event, struct clip_event_result_info *resul
             atomic_clear(&state_error);
             atomic_clear(&cleanup_error);
             atomic_set(&stage, PREPARING);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            k_spinlock_key_t key = k_spin_lock(&app_lock);
+            app_job++; app_segment = 0; app_session[0] = 0;
+            atomic_clear(&app_job_network);
+            k_spin_unlock(&app_lock, key);
+#endif
         }
     } else if (event == CLIP_EVENT_UPLOAD_END) {
         atomic_clear(&active);
@@ -237,17 +373,21 @@ static bool valid_session(const char *s)
 
 static int hash_file_range(size_t offset, size_t length, char output[65])
 {
+    uint64_t measured = upload_perf_now();
     int ret = fs_seek(&file, offset, FS_SEEK_SET);
+    upload_perf_add(UP_SEEK_US, upload_perf_now() - measured);
     if (ret) { return ret; }
     mbedtls_sha256_context hash;
     uint8_t digest[32];
+    measured = upload_perf_now();
     mbedtls_sha256_init(&hash);
     ret = mbedtls_sha256_starts(&hash, 0);
+    upload_perf_add(UP_HASH_US, upload_perf_now() - measured);
     size_t total = 0;
     while (!ret && total < length) {
         ret = check_cancel();
         if (ret) { break; }
-        uint64_t measured = upload_perf_now();
+        measured = upload_perf_now();
         ssize_t n = fs_read(&file, io, MIN(sizeof(io), length - total));
         upload_perf_add(UP_READ_US, upload_perf_now() - measured);
         upload_perf_add(UP_FS_READS, 1);
@@ -257,15 +397,21 @@ static int hash_file_range(size_t offset, size_t length, char output[65])
         ret = mbedtls_sha256_update(&hash, io, n);
         upload_perf_add(UP_HASH_US, upload_perf_now() - measured);
     }
+    measured = upload_perf_now();
     if (!ret) { ret = mbedtls_sha256_finish(&hash, digest); }
     mbedtls_sha256_free(&hash);
+    upload_perf_add(UP_HASH_US, upload_perf_now() - measured);
     if (ret) { return ret; }
     for (int i = 0; i < 32; i++) { snprintf(output + i * 2, 3, "%02x", digest[i]); }
-    return fs_seek(&file, offset, FS_SEEK_SET);
+    measured = upload_perf_now();
+    ret = fs_seek(&file, offset, FS_SEEK_SET);
+    upload_perf_add(UP_SEEK_US, upload_perf_now() - measured);
+    return ret;
 }
 
 static int hash_file(void) { return hash_file_range(0, file_length, expected_hash); }
 
+#ifndef CONFIG_CLIP_DTLS_UPLOAD
 static int send_payload(struct https_stream *stream, size_t offset, size_t length)
 {
     size_t total = 0;
@@ -453,6 +599,8 @@ static int tls_connect(struct https_stream **stream)
     return ret;
 }
 
+#endif
+
 static void digest_text(const uint8_t digest[32], char text[65])
 {
     for (int i = 0; i < 32; i++) { snprintf(text + 2 * i, 3, "%02x", digest[i]); }
@@ -477,6 +625,10 @@ static int destination_digest(uint8_t digest[32])
     for (size_t i = 0; !ret && i < ARRAY_SIZE(fields); i++) {
         ret = mbedtls_sha256_update(&hash, (const uint8_t *)fields[i], strlen(fields[i]) + 1);
     }
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    static const uint8_t protocol_identity[] = "dtls-upload-v3";
+    if (!ret) { ret = mbedtls_sha256_update(&hash, protocol_identity, sizeof(protocol_identity)); }
+#endif
     if (!ret) { ret = mbedtls_sha256_update(&hash, https_ca, sizeof(https_ca)); }
     if (!ret) { ret = mbedtls_sha256_finish(&hash, digest); }
     mbedtls_sha256_free(&hash);
@@ -560,11 +712,28 @@ static int choose_visit(const char *id, uint32_t number, uint32_t size, bool sea
 {
     struct selection *selection = context;
     if (!sealed || !size || size > MAX_FILE) { return 0; }
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+    if (measurement_session[0]) {
+        /* Replay each sealed file once, including already-uploaded files.
+         * Never wrap to the first file when the final batch is drained. */
+        if (strcmp(id, measurement_session) ||
+            compare_key(id, number, cursor_session, cursor_segment) <= 0) { return 0; }
+        add_candidate(selection->first, &selection->first_count, id, number);
+        add_candidate(selection->after, &selection->after_count, id, number);
+        return 0;
+    }
+#endif
     struct upload_file_record record;
     int ret = upload_state_load(id, number, &record);
     if (ret && ret != -ENOENT && ret != -EBADMSG) { return ret; }
     if (!ret && record.state == UPLOAD_STORED && record.size == size &&
-        !memcmp(record.destination_sha256, selection->destination, 32)) { return 0; }
+        !memcmp(record.destination_sha256, selection->destination, 32)) {
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        if (!upload_cleanup_pending(id)) { return 0; }
+#else
+        return 0;
+#endif
+    }
     add_candidate(selection->first, &selection->first_count, id, number);
     if (compare_key(id, number, cursor_session, cursor_segment) > 0) {
         add_candidate(selection->after, &selection->after_count, id, number);
@@ -578,7 +747,10 @@ static void select_candidate(const struct candidate *next)
 }
 static bool next_auto_file(void)
 {
-    if (check_cancel() || !auto_batch || auto_batch->index >= auto_batch->first_count) { return false; }
+    if (check_cancel() || !auto_batch) { return false; }
+    while (auto_batch->index < auto_batch->first_count &&
+           !auto_batch->first[auto_batch->index].segment) { auto_batch->index++; }
+    if (auto_batch->index >= auto_batch->first_count) { return false; }
     select_candidate(&auto_batch->first[auto_batch->index++]);
     return true;
 }
@@ -621,6 +793,14 @@ static int begin_auto(void)
     /* Storage is claimed and settings cannot change while active. Let USB
      * status/off and recording cancellation run during the directory walk. */
     k_mutex_unlock(&control_lock);
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    if (!ret) {
+        int cleaned = upload_cleanup_resume(check_cancel);
+        atomic_set(&delete_error, cleaned);
+        /* A cleanup error must not prevent unrelated recordings uploading. */
+        ret = check_cancel();
+    }
+#endif
     if (!ret) { int found = refill_auto_batch(); ret = found < 0 ? found : 0; }
     k_mutex_lock(&control_lock, K_FOREVER);
     scan_error = ret;
@@ -755,6 +935,9 @@ static int sync_upload_time(void)
 static void schedule_after_job(int ret)
 {
         k_mutex_lock(&control_lock, K_FOREVER);
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+        measurement_session[0] = 0;
+#endif
         k_free(auto_batch); auto_batch = NULL;
         if (atomic_get(&auto_job)) {
             if (!ret) { failures = 0; next_auto = k_uptime_get() + 5000; }
@@ -768,14 +951,88 @@ static void schedule_after_job(int ret)
         k_mutex_unlock(&control_lock);
 }
 
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+static int datagram_read(uint32_t offset, uint8_t *out, size_t length)
+{
+    uint8_t *read_buffer = io;
+    size_t capacity = sizeof(io);
+    if (datagram_cache) { read_buffer = datagram_cache; capacity = datagram_cache_bytes; }
+    int ret = check_cancel(); if (ret) { return ret; }
+    if (offset > file_length || length > file_length - offset) { return -EINVAL; }
+    if (!cache_length || offset < cache_offset || offset + length > cache_offset + cache_length) {
+        uint64_t measured = dtls_profile_now();
+        ret = fs_seek(&file, offset, FS_SEEK_SET);
+        dtls_profile_add(DP_SD_SEEK, dtls_profile_now() - measured);
+        if (ret) { return ret; }
+        cache_offset = offset; cache_length = 0;
+        uint32_t wanted = MIN(capacity, file_length - offset);
+        while (cache_length < wanted) {
+            ret = check_cancel(); if (ret) { return ret; }
+            measured = dtls_profile_now();
+            ssize_t n = fs_read(&file, read_buffer + cache_length, wanted - cache_length);
+            dtls_profile_add(DP_SD_READ, dtls_profile_now() - measured);
+            if (n <= 0) { return n < 0 ? (int)n : -EIO; }
+            cache_length += n;
+        }
+    } else { dtls_profile_add(DP_CACHE_HIT, 0); }
+    memcpy(out, read_buffer + offset - cache_offset, length);
+    return 0;
+}
+static void datagram_progress(uint32_t sent, uint32_t received, uint32_t durable, uint32_t resumed)
+{
+    atomic_set(&stage, SENDING);
+    atomic_set(&bytes_sent, sent); atomic_set(&datagram_received, received);
+    atomic_set(&confirmed, durable); atomic_set(&resume_from, resumed);
+    progress();
+}
+static int send_datagram_file(const struct upload_file_record *stamp)
+{
+#ifdef CONFIG_CLIP_DTLS_PROFILE
+    int configured = dtls_upload_set_window(datagram, datagram_initial_window, datagram_window_ceiling);
+    if (configured) { return configured; }
+#endif
+    /* Keep the existing hash buffer unchanged: vary only DATA read-ahead.
+     * Larger caches cost their full size in additional heap during a file. */
+    if (datagram_cache_bytes > sizeof(io)) {
+        datagram_cache = k_malloc(datagram_cache_bytes);
+        if (!datagram_cache) { return -ENOMEM; }
+    }
+    struct dtls_upload_identity identity = {.device = device_id, .session = session,
+        .credential = token, .segment = segment, .size = file_length};
+    memcpy(identity.sha256, stamp->content_sha256, sizeof(identity.sha256));
+    cache_length = 0;
+    struct dtls_upload_stats statistics;
+    int ret = dtls_upload_file(datagram, &identity, datagram_read, datagram_progress, &statistics);
+    k_free(datagram_cache); datagram_cache = NULL;
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+    k_mutex_lock(&control_lock, K_FOREVER); last_datagram = statistics;
+    k_mutex_unlock(&control_lock);
+#endif
+    return ret;
+}
+#endif
+
 /* Upload one file; the batch owns Wi-Fi/TLS and recording/storage exclusion. */
 static int upload_file(struct https_stream **stream)
 {
     upload_perf_begin(UP_PREPARE, session, segment, 0, 0);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spinlock_key_t app_key = k_spin_lock(&app_lock);
+    memcpy(app_session, session, sizeof(app_session)-1); app_session[14] = 0;
+    app_segment = segment;
+#endif
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    atomic_set(&tls_step, datagram ? TLS_SETUP_HTTP : TLS_SETUP_IDLE);
+    atomic_clear(&datagram_received);
+#else
     atomic_set(&tls_step, *stream ? TLS_SETUP_HTTP : TLS_SETUP_IDLE);
+#endif
     atomic_set(&stage, PREPARING);
     atomic_clear(&bytes_sent); atomic_clear(&confirmed); atomic_clear(&resume_from);
     atomic_clear(&total_bytes); atomic_clear(&state_error);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spin_unlock(&app_lock, app_key);
+#endif
     deadline = k_uptime_get() + 300000;
     int ret = check_cancel();
     char path[STORAGE_PATH_MAX];
@@ -791,7 +1048,43 @@ static int upload_file(struct https_stream **stream)
     if (!ret) {
         file_length = entry.size;
         atomic_set(&total_bytes, file_length);
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        struct upload_file_record cached;
+        uint8_t destination[32];
+        ret = destination_digest(destination);
+        int loaded = ret ? ret : upload_state_load(session, segment, &cached);
+        bool fresh_hash = false, replay = false;
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+        replay = !strcmp(measurement_session, session);
+        fresh_hash = replay && measurement_fresh_hash;
+#endif
+        if (!ret && loaded && loaded != -ENOENT && loaded != -EBADMSG) { ret = loaded; }
+        if (!ret && !fresh_hash && !replay && !loaded && cached.size == file_length &&
+            !memcmp(cached.destination_sha256, destination, sizeof(destination))) {
+            /* Sealed segments are immutable. Reuse their CRC-protected hash;
+             * final server SHA256 still detects SD corruption before COMPLETE. */
+            digest_text(cached.content_sha256, expected_hash);
+        } else if (!ret) {
+            uint8_t digest[32];
+            int content = fresh_hash ? -ENOENT : recording_hash_load(session, segment, file_length, digest);
+            if (!content) {
+                digest_text(digest, expected_hash);
+                upload_perf_add(UP_RECORD_HASH_HITS, 1);
+            } else {
+                /* Disposable metadata must never prevent a legacy recording
+                 * from uploading. Hash the actual sealed bytes on any miss. */
+                ret = hash_file();
+                if (!ret) {
+                    digest_bytes(expected_hash, digest);
+                    uint64_t measured = upload_perf_now();
+                    (void)recording_hash_save(session, segment, file_length, digest);
+                    upload_perf_add(UP_RECORD_HASH_SAVE_US, upload_perf_now() - measured);
+                }
+            }
+        }
+#else
         ret = hash_file();
+#endif
     }
     if (!ret) {
         stamp.size = file_length;
@@ -809,7 +1102,11 @@ static int upload_file(struct https_stream **stream)
     upload_perf_end(ret);
     if (!ret && !wifi_is_sta_connected()) {
         upload_perf_begin(UP_WIFI, session, segment, 0, 0);
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        dtls_upload_close(datagram); datagram = NULL;
+#else
         https_stream_close(*stream); *stream = NULL;
+#endif
         atomic_set(&stage, CONNECTING);
         ret = wifi_station_connect(ssid, password, &cancelled);
         upload_perf_end(ret);
@@ -819,6 +1116,25 @@ static int upload_file(struct https_stream **stream)
         ret = sync_upload_time();
         upload_perf_end(ret);
     }
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+    ARG_UNUSED(stream);
+    bool reused = datagram != NULL;
+    if (!ret && !datagram) {
+        upload_perf_begin(UP_TLS, session, segment, 0, file_length);
+        atomic_set(&stage, TLS); atomic_set(&tls_step, TLS_SETUP_HANDSHAKE);
+        ret = dtls_upload_open(&datagram, host, port, https_ca, sizeof(https_ca), check_cancel);
+        upload_perf_end(ret);
+    }
+    if (!ret) {
+        atomic_set(&tls_step, TLS_SETUP_HTTP);
+        ret = send_datagram_file(&stamp);
+        if (reused && (ret == -EIO || ret == -ECONNRESET || ret == -EPIPE || ret == -ENOTCONN) && !check_cancel()) {
+            dtls_upload_close(datagram); datagram = NULL;
+            ret = dtls_upload_open(&datagram, host, port, https_ca, sizeof(https_ca), check_cancel);
+            if (!ret) { ret = send_datagram_file(&stamp); }
+        }
+    }
+#else
     bool reused = *stream != NULL;
     if (!ret && !*stream) {
         upload_perf_begin(UP_TLS, session, segment, 0, 0);
@@ -842,6 +1158,7 @@ static int upload_file(struct https_stream **stream)
             if (!ret) { atomic_set(&tls_step, TLS_SETUP_HTTP); ret = upload(*stream); }
         }
     }
+#endif
     upload_perf_begin(UP_CLEANUP, session, segment, atomic_get(&confirmed), file_length);
     struct k_work_sync sync;
     k_work_cancel_delayable_sync(&stall_work, &sync);
@@ -871,10 +1188,34 @@ static int upload_file(struct https_stream **stream)
         if (saved && !atomic_get(&cleanup_error)) { atomic_set(&cleanup_error, saved); }
         if (!ret && saved) { ret = saved; }
     }
+#ifndef CONFIG_CLIP_DTLS_UPLOAD
     if (!ret && !response_keep_alive) {
         https_stream_close(*stream); *stream = NULL;
     }
+#endif
     upload_perf_end(ret);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    /* Snapshot completion before the next file resets counters and identity. */
+    atomic_set(&last_error, ret);
+    upload_app_publish(ret == -ECANCELED ? "file_cancelled" : ret ? "file_failed" : "file_complete");
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+    if (!ret && state_ready && stamp.state == UPLOAD_STORED) {
+        int cleaned = upload_cleanup_session(session, stamp.destination_sha256, check_cancel);
+        atomic_set(&delete_error, cleaned < 0 ? cleaned : 0);
+        bool retired = cleaned > 0 || (cleaned < 0 && fs_stat(path, &entry) == -ENOENT);
+        if (retired && auto_batch) {
+            /* A resumed cleanup may have queued other segments of the same
+             * session. They no longer exist after the directory move. */
+            for (unsigned i=auto_batch->index;i<auto_batch->first_count;i++) {
+                if (!strcmp(auto_batch->first[i].session, session)) { auto_batch->first[i].segment=0; }
+            }
+        }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (cleaned) { upload_app_publish(cleaned > 0 ? "session_deleted" : "session_delete_failed"); }
+#endif
+    }
+#endif
     return ret;
 }
 
@@ -884,9 +1225,23 @@ static void worker(void *a, void *b, void *c)
     for (;;) {
         if (k_sem_take(&start_job, K_SECONDS(1)) && !begin_auto()) { continue; }
         struct https_stream *stream = NULL;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        bool network_check = atomic_get(&checking_network);
+#endif
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        clip_cpu_boost_acquire();
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        buffers = network_check ? NULL : k_malloc(sizeof(*buffers));
+        int ret = network_check ? wifi_station_connect(ssid, password, &cancelled) : buffers ? 0 : -ENOMEM;
+        struct wifi_station_network checked_network = {0};
+        if (network_check && !ret) { wifi_station_get_network(&checked_network); }
+        if (!ret && !network_check) {
+#else
         buffers = k_malloc(sizeof(*buffers));
         int ret = buffers ? 0 : -ENOMEM;
         if (!ret) {
+#endif
             for (;;) {
                 ret = upload_file(&stream);
                 if (ret || !atomic_get(&auto_job) || check_cancel()) { break; }
@@ -905,24 +1260,91 @@ static void worker(void *a, void *b, void *c)
         }
         struct k_work_sync sync;
         k_work_cancel_delayable_sync(&stall_work, &sync);
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        dtls_upload_close(datagram); datagram = NULL;
+#else
         https_stream_close(stream);
+#endif
         int radio = wifi_off();
         if (!atomic_get(&cleanup_error)) { atomic_set(&cleanup_error, radio); }
         k_free(buffers); buffers = NULL;
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        clip_cpu_boost_release();
+#endif
         if (!ret) { ret = atomic_get(&cleanup_error); }
         if (atomic_get(&cancelled)) { ret = -ECANCELED; }
         else if (atomic_get(&stalled)) { ret = -ETIMEDOUT; }
         atomic_set(&last_error, ret);
         atomic_set(&stage, ret == -ECANCELED ? CANCELLED : ret ? FAILED : SUCCEEDED);
         schedule_after_job(ret);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (network_check) {
+            k_mutex_lock(&control_lock, K_FOREVER);
+            next_auto = k_uptime_get()+5000;
+            k_mutex_unlock(&control_lock);
+        }
+        struct upload_app_status job_result;
+        if (!network_check) { https_poc_app_status(&job_result); job_result.active = false; }
+#endif
         struct clip_event_result_info result;
         while (clip_post_event_sync(CLIP_EVENT_UPLOAD_END, &result)) {
             k_sleep(K_MSEC(10));
         }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        if (network_check) { app_network_done(ret, &checked_network, radio); }
+        else { upload_app_publish_result(ret == -ECANCELED ? "job_cancelled" : ret ? "job_failed" : "job_complete", &job_result); }
+#endif
     }
 }
 /* Full ECDSA handshakes measured 5816 B; 6 KiB left only 328 B. */
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+K_THREAD_DEFINE(https_worker, 12288, worker, NULL, NULL, NULL, 7, 0, 0);
+#else
 K_THREAD_DEFINE(https_worker, 8192, worker, NULL, NULL, NULL, 7, 0, 0);
+#endif
+
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DTLS_PROFILE)
+static int configure_datagram_cache(const char *args, char *response, size_t length)
+{
+    if (!args) { return -EINVAL; }
+    if (!strcmp(args, "cache,4")) { datagram_cache_bytes = 4096; }
+    else if (!strcmp(args, "cache,8")) { datagram_cache_bytes = 8192; }
+    else if (!strcmp(args, "cache,16")) { datagram_cache_bytes = 16384; }
+    else if (strcmp(args, "cache")) { return -EINVAL; }
+    int n = snprintf(response, length,
+        "{\"ok\":true,\"data\":{\"cache_kib\":%u}}\n", datagram_cache_bytes / 1024U);
+    return n < 0 || (size_t)n >= length ? -ENOSPC : n;
+}
+#endif
+
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DTLS_PROFILE)
+/* RAM-only experiment settings, called under control_lock while idle. */
+static int configure_datagram_window(const char *args, char *response, size_t length)
+{
+    if (!args) { return -EINVAL; }
+    if (strcmp(args, "window")) {
+        if (strncmp(args, "window,", 7) || strlen(args + 7) >= 16) { return -EINVAL; }
+        char values[16]; strcpy(values, args + 7);
+        char *cursor = values;
+        unsigned int parsed[2] = {0};
+        for (unsigned int i = 0; i < 2; i++) {
+            const char *part = split_field(&cursor);
+            if (!part || !*part) { return -EINVAL; }
+            for (; *part; part++) {
+                if (*part < '0' || *part > '9') { return -EINVAL; }
+                parsed[i] = parsed[i] * 10U + (*part - '0');
+                if (parsed[i] > 128) { return -EINVAL; }
+            }
+        }
+        if (cursor || parsed[0] < 16 || parsed[0] > parsed[1]) { return -EINVAL; }
+        datagram_initial_window = parsed[0]; datagram_window_ceiling = parsed[1];
+    }
+    int n = snprintf(response, length,
+        "{\"ok\":true,\"data\":{\"initial_packets\":%u,\"ceiling_packets\":%u}}\n",
+        datagram_initial_window, datagram_window_ceiling);
+    return n < 0 || (size_t)n >= length ? -ENOSPC : n;
+}
+#endif
 
 static int configure_network(char *args)
 {
@@ -932,9 +1354,30 @@ static int configure_network(char *args)
     if (!strlen(args) || strlen(args) > 32 || strlen(split) < 8 || strlen(split) > 63) {
         return -EINVAL;
     }
-    strcpy(ssid, args);
-    strcpy(password, split);
-    return 0;
+    if (strchr(args, '\r') || strchr(args, '\n') || strchr(split, '\r') || strchr(split, '\n')) {
+        return -EINVAL;
+    }
+    if (config_saved && !strcmp(ssid, args) && !strcmp(password, split)) { config_error = 0; return 0; }
+    int ret = upload_config_save_network(&settings, args, split);
+    config_error = ret;
+    if (!ret) {
+        config_saved = true;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        app_reset_network("idle");
+#endif
+    }
+    return ret;
+}
+
+static int network_status(char *response, size_t length)
+{
+    char encoded[65];
+    size_t size = strlen(ssid);
+    for (size_t i = 0; i < size; i++) { snprintf(encoded + 2*i, 3, "%02x", (unsigned char)ssid[i]); }
+    encoded[2*size] = 0;
+    return snprintf(response, length,
+        "{\"ok\":true,\"error\":0,\"data\":{\"configured\":%s,\"ssid_hex\":\"%s\",\"saved\":%s,\"config_error\":%d}}\n",
+        size ? "true" : "false", encoded, config_saved ? "true" : "false", config_error);
 }
 
 static int configure_receiver(char *args)
@@ -952,25 +1395,28 @@ static int configure_receiver(char *args)
     if (!fields[1][0] || *end || n < 1 || n > 65535 || strlen(fields[1]) > 5) {
         return -EINVAL;
     }
-    strcpy(host, fields[0]);
-    strcpy(port, fields[1]);
-    strcpy(device_id, fields[2]);
-    strcpy(token, fields[3]);
-    return 0;
+    int ret = upload_config_save_receiver(&settings, fields[0], fields[1], fields[2], fields[3]);
+    config_error = ret;
+    if (!ret) { config_saved = true; }
+    return ret;
 }
 
-static int set_upload_time(const char *args)
+int https_poc_set_time(int64_t timestamp)
 {
-    char *end;
-    long long timestamp = strtoll(args, &end, 10);
-    if (*end || timestamp < 1700000000LL || timestamp > 4102444800LL) { return -EINVAL; }
+    if (timestamp < 1700000000LL || timestamp > 4102444800LL) { return -EINVAL; }
+    k_mutex_lock(&control_lock, K_FOREVER);
+    if (https_poc_active() || https_poc_record_pending()) {
+        k_mutex_unlock(&control_lock); return -EBUSY;
+    }
     struct timespec ts = {.tv_sec = timestamp, .tv_nsec = 0};
     int ret = clock_settime(CLOCK_REALTIME, &ts) ? -errno : 0;
     atomic_set(&time_ready, ret == 0);
     if (!ret) { time_synced_at = k_uptime_get(); }
+    k_mutex_unlock(&control_lock);
     return ret;
 }
 
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
 static int start_upload(char *args)
 {
     char *split = strchr(args, ':');
@@ -990,12 +1436,80 @@ static int start_upload(char *args)
     k_sem_give(&start_job);
     return 0;
 }
+#endif
+
+#ifdef CONFIG_CLIP_UPLOAD_APP
+static int network_check_command(struct at_cmd_ctx *ctx, char *response, size_t length)
+{
+    if (ctx->type == AT_CMD_TYPE_READ || ctx->type == AT_CMD_TYPE_TEST) {
+        struct upload_app_network result;
+        https_poc_app_network(&result);
+        return upload_app_format_network(&result, false, 0, 0, response, length);
+    }
+    if (ctx->type == AT_CMD_TYPE_SET) {
+        if (!ctx->args || strcmp(ctx->args, "cancel")) { return -EINVAL; }
+        if (atomic_get(&checking_network) && https_poc_active()) { request_cancel(); }
+        return 0;
+    }
+    if (https_poc_active() || https_poc_record_pending() || atomic_get(&checking_network) || clip_event_get_state()!=CLIP_STATE_IDLE) { return -EBUSY; }
+    if (!ssid[0] || strlen(password)<8) { return -EINVAL; }
+    struct clip_event_result_info result;
+    int ret = clip_post_event_sync(CLIP_EVENT_UPLOAD_BEGIN, &result);
+    if (ret || result.result != CLIP_EVENT_OK) { return -EBUSY; }
+    atomic_clear(&auto_job);
+    atomic_set(&checking_network, 1);
+    atomic_set(&app_job_network, 1);
+    atomic_set(&stage, CONNECTING);
+    app_reset_network("checking");
+    deadline = k_uptime_get()+60000;
+    wifi_diag_reset();
+    k_sem_give(&start_job);
+    return snprintf(response, length, "{\"ok\":true,\"data\":{\"accepted\":true,\"job\":%u,\"state\":\"checking\",\"scope\":\"wifi_dhcp\"}}\n", app_job);
+}
+#endif
 
 static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
 {
     int ret = 0;
     char args[256] = {0};
-    if (ctx->transport_type != TRANSPORT_TYPE_USB) { ret = -EACCES; goto reply; }
+    /* BLE command writes require encryption in ble.c. App controls are
+     * explicitly allowed; developer diagnostics remain USB-only. */
+    bool phone_network = ctx->transport_type == TRANSPORT_TYPE_BLE && !strcmp(ctx->name, "NETCFG");
+    bool phone_control = phone_network;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    phone_control |= ctx->transport_type == TRANSPORT_TYPE_BLE &&
+        (!strcmp(ctx->name, "NETCHECK") || !strcmp(ctx->name, "UPLOADAUTO") ||
+         !strcmp(ctx->name, "UPLOADCANCEL") || !strcmp(ctx->name, "UPLOADCFG") ||
+         !strcmp(ctx->name, "UPLOADSTATE") || !strcmp(ctx->name, "UPLOADLIST") ||
+         (!strcmp(ctx->name, "UPLOAD") && ctx->type != AT_CMD_TYPE_SET));
+#endif
+    if (ctx->transport_type != TRANSPORT_TYPE_USB && !phone_control) { ret = -EACCES; goto reply; }
+    if (!strcmp(ctx->name, "NETCFG") && ctx->type != AT_CMD_TYPE_SET) {
+        return network_status(response, length);
+    }
+    if (!strcmp(ctx->name, "UPLOADCFG") && ctx->type != AT_CMD_TYPE_SET) {
+        return snprintf(response, length, "{\"ok\":true,\"data\":{\"configured\":%s,\"saved\":%s}}\n",
+            host[0] && token[0] ? "true":"false", config_saved ? "true":"false");
+    }
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    if (!strcmp(ctx->name, "NETCHECK")) {
+        ret = network_check_command(ctx, response, length);
+        if (ret > 0) { return ret; }
+        goto reply;
+    }
+    if (ctx->transport_type == TRANSPORT_TYPE_BLE && !strcmp(ctx->name, "UPLOAD")) {
+        struct upload_app_status status;
+        https_poc_app_status(&status);
+        return upload_app_format_status(&status, NULL, 0, 0, response, length);
+    }
+#endif
+#ifdef CONFIG_CLIP_TCP_TRACE
+    if (!strcmp(ctx->name, "TCPTRACE")) {
+        ret = clip_tcp_trace_command(ctx->args, https_poc_active() || https_poc_record_pending(), response, length);
+        if (ret >= 0) { return ret; }
+        goto reply;
+    }
+#endif
 #ifdef CONFIG_CLIP_HTTPS_PROFILE
     if (!strcmp(ctx->name, "UPLOADPERF")) {
         ret = upload_perf_command(ctx->args, https_poc_active() || https_poc_record_pending(), response, length);
@@ -1003,53 +1517,102 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
         goto reply;
     }
 #endif
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
+    if (!strcmp(ctx->name, "UPLOADNET")) {
+#ifdef CONFIG_CLIP_DTLS_PROFILE
+        if (ctx->type == AT_CMD_TYPE_SET) {
+            /* Read the last completed file under control_lock, even while the
+             * worker sends the next file. Mutating commands still require idle. */
+            if (ctx->args && !strcmp(ctx->args, "timing")) {
+                return dtls_profile_format(&last_datagram.timing, response, length);
+            }
+            if (https_poc_active() || https_poc_record_pending()) { ret = -EBUSY; goto reply; }
+#ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
+            if (ctx->args && (!strncmp(ctx->args, "measure,", 8) || !strncmp(ctx->args, "measure-cache,", 14))) {
+                bool fresh = !strncmp(ctx->args, "measure,", 8);
+                const char *id = ctx->args + (fresh ? 8 : 14);
+                if (settings.enabled || clip_event_get_state() != CLIP_STATE_IDLE) { ret = -EBUSY; goto reply; }
+                if (!valid_session(id)) { ret = -EINVAL; goto reply; }
+                strcpy(measurement_session, id);
+                measurement_fresh_hash = fresh;
+                return snprintf(response, length,
+                    "{\"ok\":true,\"data\":{\"measure_session\":\"%s\",\"fresh_hash\":%s,\"one_pass\":true}}\n",
+                    id, fresh ? "true" : "false");
+            }
+#endif
+            ret = ctx->args && !strncmp(ctx->args, "cache", 5) ?
+                configure_datagram_cache(ctx->args, response, length) :
+                configure_datagram_window(ctx->args, response, length);
+            if (ret >= 0) { return ret; }
+            goto reply;
+        }
+#endif
+        return snprintf(response, length,
+            "{\"ok\":true,\"data\":{\"protocol\":3,\"elapsed_ms\":%u,\"packets\":%u,"
+            "\"retransmissions\":%u,\"receipts\":%u,\"received\":%u,\"durable\":%u,"
+            "\"resumed\":%u,\"rtt_ms\":%u,\"rto_ms\":%u,\"window_packets\":%u}}\n",
+            last_datagram.elapsed_ms, last_datagram.sent_packets, last_datagram.retransmissions,
+            last_datagram.receipts, last_datagram.received, last_datagram.durable,
+            last_datagram.resume_from, last_datagram.rtt_ms, last_datagram.rto_ms, last_datagram.window_packets);
+    }
+#endif
     if (!strcmp(ctx->name, "UPLOAD") && ctx->type != AT_CMD_TYPE_SET) { goto reply; }
     if (!strcmp(ctx->name, "UPLOADAUTO") && ctx->type != AT_CMD_TYPE_SET) {
         return snprintf(response, length,
             "{\"ok\":true,\"data\":{\"enabled\":%s,\"paused\":%s,\"config_saved\":%s,"
-            "\"config_error\":%d,\"scan_error\":%d,\"time_ready\":%s,\"auto_active\":%s,"
+            "\"upload_ready\":%s,\"config_error\":%d,\"scan_error\":%d,\"time_ready\":%s,\"auto_active\":%s,"
             "\"failures\":%u,\"next_attempt_ms\":%u}}\n",
             settings.enabled ? "true" : "false", atomic_get(&auto_paused) ? "true" : "false",
-            config_saved ? "true" : "false", config_error, scan_error,
+            config_saved ? "true" : "false", upload_config_valid(&settings) ? "true" : "false", config_error, scan_error,
             atomic_get(&time_ready) ? "true" : "false", atomic_get(&auto_job) ? "true" : "false",
             (unsigned int)failures, (unsigned int)MAX(0, next_auto - k_uptime_get()));
     }
     if (!strcmp(ctx->name, "UPLOADAUTO") && ctx->args && !strcmp(ctx->args, "off")) {
-        settings.enabled = 0; atomic_set(&auto_paused, 1);
-        if (atomic_get(&auto_job)) { request_cancel(); }
-        ret = upload_config_save(&settings); config_error = ret; config_saved = ret == 0;
+        ret = config_saved && !settings.enabled ? 0 : upload_config_save_enabled(&settings, 0);
+        config_error = ret;
+        if (!ret) {
+            config_saved = true; atomic_set(&auto_paused, 1);
+            if (atomic_get(&auto_job)) { request_cancel(); }
+        }
         goto reply;
     }
     if (!strcmp(ctx->name, "UPLOADCANCEL")) {
         atomic_set(&auto_paused, 1); request_cancel(); goto reply;
     }
-    if (https_poc_active() || https_poc_record_pending()) { ret = -EBUSY; goto reply; }
-    if (!strcmp(ctx->name, "UPLOADSAVE")) {
-        ret = upload_config_save(&settings); config_error = ret; config_saved = ret == 0; goto reply;
-    }
+    if (https_poc_active() || https_poc_record_pending()
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        || atomic_get(&checking_network)
+#endif
+    ) { ret = -EBUSY; goto reply; }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     if (!strcmp(ctx->name, "UPLOADCLEAR")) {
-        atomic_set(&auto_paused, 1); settings.enabled = 0;
-        ret = upload_config_clear(); config_error = ret; config_saved = false;
+        ret = upload_config_clear(); config_error = ret;
         if (!ret) {
+            atomic_set(&auto_paused, 1); config_saved = false;
             memset(&settings, 0, sizeof(settings));
             strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
             cursor_session[0] = 0; cursor_segment = 0; atomic_clear(&time_ready);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            app_reset_network("idle");
+#endif
         }
         goto reply;
     }
+#endif
     if (!ctx->args) { ret = -EINVAL; goto reply; }
     if (strlen(ctx->args) >= sizeof(args)) { ret = -EINVAL; goto reply; }
     strcpy(args, ctx->args);
-    if ((!strcmp(ctx->name, "NETCFG") || !strcmp(ctx->name, "UPLOADCFG") ||
-         !strcmp(ctx->name, "UPLOADCLOCK")) && settings.enabled) { ret = -EBUSY; goto reply; }
+    if ((!strcmp(ctx->name, "UPLOADCFG") || !strcmp(ctx->name, "UPLOADCLOCK")) &&
+        strcmp(args, "clear") && settings.enabled) { ret = -EBUSY; goto reply; }
     if (!strcmp(ctx->name, "UPLOADAUTO")) {
         if (strcmp(args, "on")) { ret = -EINVAL; goto reply; }
-        settings.enabled = 1; ret = upload_config_save(&settings); config_error = ret;
-        if (ret) { settings.enabled = 0; config_saved = false; }
-        else {
+        ret = config_saved && settings.enabled ? 0 : upload_config_save_enabled(&settings, 1);
+        config_error = ret;
+        if (!ret) {
             config_saved = true; atomic_clear(&auto_paused); failures = 0;
             next_auto = k_uptime_get() + 5000; cursor_session[0] = 0; cursor_segment = 0;
         }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     } else if (!strcmp(ctx->name, "UPLOADCLOCK")) {
         char *split = strchr(args, ',');
         if (!split) { ret = -EINVAL; goto reply; }
@@ -1059,20 +1622,31 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
             ret = -EINVAL; goto reply;
         }
         strcpy(candidate.clock_host, args); strcpy(candidate.clock_port, split);
-        if (!upload_config_valid(&candidate)) { ret = -EINVAL; }
-        else {
-            strcpy(settings.clock_host, args); strcpy(settings.clock_port, split);
-            config_saved = false; atomic_clear(&time_ready);
-        }
+        ret = upload_config_save(&candidate); config_error = ret;
+        if (!ret) { settings = candidate; config_saved = true; atomic_clear(&time_ready); }
         memset(&candidate, 0, sizeof(candidate));
+#endif
     } else if (!strcmp(ctx->name, "NETCFG")) {
-        ret = configure_network(args); if (!ret) { config_saved = false; }
+        if (clip_event_get_state() != CLIP_STATE_IDLE) { ret = -EBUSY; }
+        else if (!strcmp(args, "clear")) {
+            ret = upload_config_forget(&settings, UPLOAD_FORGET_WIFI); config_error = ret;
+            if (!ret) {
+                config_saved = true; atomic_set(&auto_paused, 1);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+                app_reset_network("idle");
+#endif
+            }
+        } else { ret = configure_network(args); }
+        if (!ret) { memset(args, 0, sizeof(args)); return network_status(response, length); }
     } else if (!strcmp(ctx->name, "UPLOADCFG")) {
-        ret = configure_receiver(args); if (!ret) { config_saved = false; }
-    } else if (!strcmp(ctx->name, "UPTIME")) {
-        ret = set_upload_time(args);
+        if (!strcmp(args, "clear")) {
+            ret = upload_config_forget(&settings, UPLOAD_FORGET_RECEIVER); config_error = ret;
+            if (!ret) { config_saved = true; atomic_set(&auto_paused, 1); }
+        } else { ret = configure_receiver(args); }
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
     } else if (!strcmp(ctx->name, "UPLOAD")) {
         ret = start_upload(args);
+#endif
     } else if (!strcmp(ctx->name, "UPLOADLIST")) {
         ret = list_states(args, response, length);
         if (ret >= 0) { memset(args, 0, sizeof(args)); return ret; }
@@ -1085,11 +1659,29 @@ reply:
     struct wifi_station_network network;
     wifi_station_get_network(&network);
     return snprintf(response, length,
-        "{\"ok\":%s,\"error\":%d,\"stage\":\"%s\",\"active\":%s,\"last_error\":%d,\"sent\":%d,\"confirmed\":%d,\"resume_from\":%d,\"size\":%d,\"state_error\":%d,\"protocol\":2,\"wifi_step\":\"%s\",\"tls_step\":\"%s\",\"wifi_ip\":\"%s\",\"wifi_netmask\":\"%s\",\"wifi_gateway\":\"%s\"}\n",
+        "{\"ok\":%s,\"error\":%d,\"stage\":\"%s\",\"active\":%s,\"last_error\":%d,\"sent\":%d,\"confirmed\":%d,\"resume_from\":%d,\"size\":%d,\"state_error\":%d,"
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        "\"protocol\":3,\"received\":%d,"
+#else
+        "\"protocol\":2,"
+#endif
+/* Production auto-delete is independent of upload/transport failures. */
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        "\"delete_after_upload\":true,\"delete_error\":%d,"
+#else
+        "\"delete_after_upload\":false,\"delete_error\":0,"
+#endif
+        "\"wifi_step\":\"%s\",\"tls_step\":\"%s\",\"wifi_ip\":\"%s\",\"wifi_netmask\":\"%s\",\"wifi_gateway\":\"%s\"}\n",
         ret ? "false" : "true", ret, names[atomic_get(&stage)],
         https_poc_active() ? "true" : "false", (int)atomic_get(&last_error), (int)atomic_get(&bytes_sent),
         (int)atomic_get(&confirmed), (int)atomic_get(&resume_from), (int)atomic_get(&total_bytes),
         (int)atomic_get(&state_error),
+#ifdef CONFIG_CLIP_DTLS_UPLOAD
+        (int)atomic_get(&datagram_received),
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
+        (int)atomic_get(&delete_error),
+#endif
         wifi_station_last_step(), tls_steps[atomic_get(&tls_step)],
         network.ip, network.netmask, network.gateway);
 }
@@ -1098,6 +1690,9 @@ static int command(struct at_cmd_ctx *ctx, char *response, size_t length)
 {
     k_mutex_lock(&control_lock, K_FOREVER);
     int ret = command_locked(ctx, response, length);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    atomic_set(&app_enabled, settings.enabled);
+#endif
     k_mutex_unlock(&control_lock);
     return ret;
 }
@@ -1108,13 +1703,32 @@ int https_poc_register(void)
     if (!configuration) { return -ENOMEM; }
     int ret;
     static const struct at_command commands[] = {
-        {"NETCFG", AT_CMD_SET, command}, {"UPLOADCFG", AT_CMD_SET, command},
-        {"UPTIME", AT_CMD_SET, command}, {"UPLOAD", AT_CMD_SET | AT_CMD_QUERY, command},
+        {"NETCFG", AT_CMD_SET | AT_CMD_QUERY, command}, {"UPLOADCFG", AT_CMD_SET | AT_CMD_QUERY, command},
+        {"UPLOAD", AT_CMD_QUERY
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+            | AT_CMD_SET
+#endif
+            , command},
         {"UPLOADCANCEL", AT_CMD_EXEC, command},
         {"UPLOADSTATE", AT_CMD_SET, command}, {"UPLOADLIST", AT_CMD_SET, command},
         {"UPLOADAUTO", AT_CMD_SET | AT_CMD_QUERY, command},
-        {"UPLOADSAVE", AT_CMD_EXEC, command}, {"UPLOADCLEAR", AT_CMD_EXEC, command},
+#ifdef CONFIG_CLIP_DEBUG_INTERFACES
+        {"UPLOADCLEAR", AT_CMD_EXEC, command},
         {"UPLOADCLOCK", AT_CMD_SET, command},
+#endif
+#ifdef CONFIG_CLIP_UPLOAD_APP
+        {"NETCHECK", AT_CMD_EXEC | AT_CMD_SET | AT_CMD_QUERY, command},
+#endif
+#if defined(CONFIG_CLIP_DTLS_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
+        {"UPLOADNET", AT_CMD_QUERY
+#ifdef CONFIG_CLIP_DTLS_PROFILE
+            | AT_CMD_SET
+#endif
+            , command},
+#endif
+#ifdef CONFIG_CLIP_TCP_TRACE
+        {"TCPTRACE", AT_CMD_SET, command},
+#endif
 #ifdef CONFIG_CLIP_HTTPS_PROFILE
         {"UPLOADPERF", AT_CMD_SET, command},
 #endif
@@ -1124,7 +1738,10 @@ int https_poc_register(void)
         if (ret) { return ret; }
     }
     ret = upload_config_init(&settings);
-    config_error = ret; config_saved = !ret && ssid[0];
+    config_error = ret; config_saved = !ret && settings.version == 1;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    atomic_set(&app_enabled, settings.enabled);
+#endif
     if (!settings.clock_host[0]) {
         strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
     }

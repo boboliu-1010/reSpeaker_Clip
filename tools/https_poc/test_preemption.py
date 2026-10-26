@@ -25,7 +25,7 @@ class PreemptionTest(unittest.TestCase):
         valid = "static bool valid_session" + source.split("static bool valid_session", 1)[1].split(
             "static int hash_file", 1)[0]
         start = "static int start_upload" + source.split("static int start_upload", 1)[1].split(
-            "static int command", 1)[0]
+            "\n#endif", 1)[0]
         dispatch = "void clip_event_process" + event_source.split("void clip_event_process", 1)[1].split(
             "static enum clip_event_result execute_transition", 1)[0]
         code = r'''

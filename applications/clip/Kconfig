@@ -13,20 +13,120 @@ menuconfig CLIP
 
 if CLIP
 
-config CLIP_HTTPS_POC
-	bool "Experimental USB-controlled HTTPS upload"
+config CLIP_DEBUG_INTERFACES
+	bool "Developer diagnostics and experimental AT interfaces"
+	default y if LOG_BACKEND_UART
 	default n
 	help
-	  Station-only, stopped-recording upload. Uses CDC-only USB and disables
-	  application OTA during this experiment. Requires a supplied test CA.
+	  Application-only master gate for resource, network and performance
+	  diagnostics. Follow the baseline default/production split: the production
+	  snippet disables UART logging, so this defaults off there. Does not change the
+	  optimized DATA window, read cache, CPU boost or hardware encryption.
+
+config CLIP_DTLS_UPLOAD
+	bool "Durable recording upload over DTLS"
+	depends on CLIP_HTTPS_POC
+	select MBEDTLS_SSL_PROTO_DTLS
+	default n
+	help
+	  Full recording application with one authenticated datagram connection,
+	  selective receive credit and server-authoritative durable checkpoints.
+	  Reuses the existing scheduler, configuration and independent A/B state.
+
+config CLIP_DTLS_PROFILE
+	bool "DTLS data-phase timing counters"
+	depends on CLIP_DTLS_UPLOAD && CLIP_WIFI_DIAG
+	default n
+	help
+	  Measure source reads, AEAD, UDP calls and explicit waits in RAM.
+	  Uses pinned build-local TLS source instrumentation, with no log output.
+
+config CLIP_RECORDING_HASH
+	bool "Cache sealed recording SHA-256 while writing"
+	depends on CLIP_DTLS_UPLOAD
+	default y
+	help
+	  Incrementally hash successful recording writes, including frame headers.
+	  Publish CRC-protected content metadata only after data sync and close.
+	  Uploads without valid metadata retain the full-file hashing fallback.
+
+config CLIP_DTLS_WINDOW_PACKETS
+	int "Maximum logical DTLS in-flight packets"
+	depends on CLIP_DTLS_UPLOAD
+	range 16 128
+	default 64
+	help
+	  One packet is 1024 bytes. Only retransmission metadata occupies RAM;
+	  payload is reread from SD. The initial window is configured separately.
+
+config CLIP_DTLS_INITIAL_WINDOW_PACKETS
+	int "Initial logical DTLS in-flight packets"
+	depends on CLIP_DTLS_UPLOAD
+	range 16 128
+	default 16
+	help
+	  Must not exceed CLIP_DTLS_WINDOW_PACKETS. Loss still reduces the window.
+
+config CLIP_DTLS_READ_CACHE_BYTES
+	int "DTLS DATA read-ahead cache bytes"
+	depends on CLIP_DTLS_UPLOAD
+	range 4096 16384
+	default 4096
+	help
+	  Sizes above4096 allocate a separate per-file heap buffer. The4KiB hash
+	  buffer is retained. This setting also applies when timing is disabled.
+
+config CLIP_HTTPS_POC
+	bool "Experimental recording upload"
+	default n
+	help
+	  Station-only, stopped-recording upload. Uses CDC-only USB, optional BLE
+	  App controls, and disables application OTA. Requires a supplied test CA.
+
+config CLIP_UPLOAD_APP
+	bool "BLE provisioning validation, upload controls and notifications"
+	depends on CLIP_HTTPS_POC && BT
+	default y
+	help
+	  Reuse the uploader for asynchronous Wi-Fi validation. Publish bounded,
+	  throttled events from the existing AT thread, never the DATA loop.
+
+config CLIP_UPLOAD_AUTODELETE
+	bool "Delete a complete recording after all segments are uploaded"
+	depends on CLIP_DTLS_UPLOAD
+	default y if !LOG_BACKEND_UART
+	default n
+	help
+	  Production defaults on; the default diagnostic build retains recordings.
+	  Only a successful upload can nominate a sealed session for deletion.
+	  Verify all segment journals before moving it to a private cleanup directory.
+	  Interrupted cleanup resumes there without sweeping historical recordings.
 
 config CLIP_HTTPS_PROFILE
 	bool "Passive upload phase timing via USB"
-	depends on CLIP_HTTPS_POC
+	depends on CLIP_HTTPS_POC && CLIP_DEBUG_INTERFACES
 	default n
 	help
 	  Opt-in bounded RAM event ring; no audio or credential logging.
 	  Disabled builds compile timing hooks to no-ops.
+
+config CLIP_DTLS_PREPARE_MEASURE
+	bool "Diagnostic DTLS session replay and preparation measurement"
+	depends on CLIP_DTLS_PROFILE && CLIP_HTTPS_PROFILE
+	default n
+	help
+	  Diagnostic-only session filter, one-pass replay and fresh hash calculation.
+	  Allows idle session deletion only while automatic upload is disabled.
+	  Does not alter transport parameters or file contents.
+
+config CLIP_TCP_TRACE
+	bool "Passive TCP retransmission observations via USB"
+	depends on CLIP_WIFI_DIAG && NET_TCP_CONGESTION_AVOIDANCE && NET_TCP_FAST_RETRANSMIT
+	default n
+	help
+	  Diagnostic image only. Replaces pinned SDK tcp.c with an instrumented
+	  build-local copy. USB enables an 8196-byte bounded RAM ring while idle.
+	  Does not change TCP timers, windows, packet contents or scheduling.
 
 config CLIP_HTTPS_STA_PS_OFF
 	bool "Disable station power save before experimental HTTPS upload"
@@ -50,11 +150,11 @@ config CLIP_DHCP_REBOOT_ATTEMPTS
 
 config CLIP_NETWORK_BACKPORT_ARP
 	bool "Experimental pinned-SDK ARP pending-entry fixes"
-	depends on CLIP_HTTPS_POC && CLIP_WIFI_DIAG
+	depends on CLIP_HTTPS_POC
 	default n
 	help
-	  Generate fixed ARP source together with the existing passive diagnostics.
-	  Keep this separate from the DHCP experiment for a controlled comparison.
+	  Apply the pinned ARP fixes independently of optional diagnostics. Debug
+	  builds may additionally instrument the fixed source; release does not.
 
 module = CLIP
 module-str = Clip Application
@@ -480,6 +580,7 @@ config CLIP_BATTERY_DISPLAY_MAX_STEP
 config CLIP_RESOURCE_STATS
 	bool "Enable on-demand AT resource measurements"
 	default n
+	depends on CLIP_DEBUG_INTERFACES
 	depends on THREAD_MONITOR && THREAD_NAME && INIT_STACKS
 	depends on SYS_HEAP_RUNTIME_STATS && THREAD_RUNTIME_STATS
 	help
@@ -488,14 +589,23 @@ config CLIP_RESOURCE_STATS
 
 config CLIP_DEBUG_STATS
 	bool "Enable periodic thread stack and heap usage logging"
+	depends on CLIP_DEBUG_INTERFACES
 	default n
 	help
 	  Print thread stack usage and heap stats every 10 seconds.
 
+config CLIP_WIFI_AUTH_LOG
+	bool "Station authentication log diagnostics"
+	depends on CLIP_WIFI_DIAG && LOG_BACKEND_FS
+	help
+	  Allow the existing LOG command while idle in the upload experiment.
+	  Intended for bounded station-authentication tests, disabled by default.
+
 config CLIP_WIFI_DIAG
 	bool "Passive HTTPS station network diagnostics"
-	depends on CLIP_HTTPS_POC && NET_STATISTICS_USER_API
-	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4 && NET_STATISTICS_TCP
+	depends on CLIP_DEBUG_INTERFACES && CLIP_HTTPS_POC && NET_STATISTICS_USER_API
+	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4
+	depends on !NET_TCP || NET_STATISTICS_TCP
 	default n
 	help
 	  Cache software network counters around station setup and TLS connect.

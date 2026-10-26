@@ -1,8 +1,10 @@
 # Boa 桌面端 / Server / HTTPS 固件集成分支
 
-**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：说明 App/Clip 上传、文件归属和本人音频列表接口。
+**先读 [Boa Voice 统一总览](docs/product/boa-voice-overview.md)**：说明 Roger 固件/接收基础、设备功能、App/Clip 上传、文件归属和音频列表接口。
 
 分支：`boa/desktop-https-integration`。桌面与实验固件已完成代码集成；音频 Server 后续已部署至开发机并通过服务器内验证。未发布 App 安装包、未安装本分支 App、未刷机。
+
+**代码基础：**Roger 固件和 HTTPS 接收服务按固定版本引用，Boa 的业务能力通过新增模块与适配层扩展。详见 [基础与扩展约定](docs/contracts/roger-base-extension-v1.md)。
 
 **服务设计：App 与 Clip 都连接同一个 Boa Server，使用同一个 SERVER_URL。** 服务包含 App 上传、Clip 接收、统一鉴权、文件存储和列表接口。开发机为 `bobo@100.58.19.213`；部署参数见 [部署记录](docs/development/server-100.58.19.213.md)，已有跨机器传输证据见 [桌面 HTTP 验证](docs/development/2026-10-22-desktop-http-status.md)。这些记录不代表首期归属与统一列表已经实现。
 

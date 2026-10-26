@@ -1,5 +1,7 @@
 # Boa Voice 与 Clip 设备交互契约
 
+**当前功能入口：**见 [设备与音频文件总览](../product/boa-voice-overview.md) 和 [Roger 基础与 Boa 扩展约定](roger-base-extension-v1.md)。当前 HTTPS profile 的基础录音控制为 START/STOP，联网/上传配置走 USB；下表同时保留原桌面基线的命令映射。
+
 **性质：桌面当前接入范围、固件事实与后续联调规则。** 不是给固件新增命令，也不表示已经通过真机联调。
 
 源码基线：固件 `applications/clip` 内容树 `f78e227180db84a08c292ce946c2fd0fa72caa74`；Flutter SDK 内容树 `e3c3c09aa362f8c1584582f47f026c2f40f62381`。收到的实物需记录 VERSION、刷入包的构建来源/校验值及实际板型。只知道“roger/官方固件”名称，不足以判定兼容。

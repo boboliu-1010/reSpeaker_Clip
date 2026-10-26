@@ -1,5 +1,7 @@
 # Clip 实验直传与 Boa App / Server 接入契约
 
+**基础复用约定：**Roger 固件和接收代码按固定版本引用；Boa 通过新增适配层和文件索引提供业务功能，见 [基础与扩展](roger-base-extension-v1.md)。本文接收适配以该约定为准。
+
 **首期范围调整（2026-10-23）：**[首期总览](../product/boa-voice-overview.md) 仅要求接收原始片段、固定归属、持久化来源索引并提供统一文件列表。首期不等待解码、标准音频发布或 AI；本文后续的转换 Worker、device-ingests 查询/重试及自动串联留待以后。既有 V2 上传校验/回执保持。
 
 **职责与隔离以 [统一总览](../product/boa-voice-overview.md) 为准。** 本文 owner_id 对应统一用户身份 owner_user_id；设备凭据须经有效绑定确定归属，后台解码/发布继承该归属。未绑定片段不能自动归入任意用户；共享实验 token 尚不是多用户方案。
@@ -20,7 +22,7 @@
 
 **推荐：服务端增加兼容接收适配器和转换入库模块，保留设备 V2 路径/回执；App 继续读取标准音频接口。** `/api/boa/device/v1` 是旧方案提出的未来新协议，不是实验固件已使用的接口，首期不强迫设备切换。
 
-**同一个 Boa Server 直接提供 App API 和 Clip V2 接收 API，App 与 Clip 使用同一个 SERVER_URL。** 首期复用实验 ResumeStore 的校验/续传组件，在同一服务内完成身份校验、接收、文件索引和列表查询；不直接把测试用 ThreadingHTTPServer 当成生产路由。下文转换 Worker 与标准音频发布属于后续能力，不是首期文件可见的前置依赖。
+**同一个 Boa Server 直接提供 App API 和 Clip V2 接收 API，App 与 Clip 使用同一个 SERVER_URL。** 首期以 Roger Receiver/Handler 为基础，通过新增子类与适配层复用 ResumeStore 的校验/续传组件，在同一服务内完成身份校验、接收、文件索引和列表查询。下文转换 Worker 与标准音频发布属于后续能力，不是首期文件可见的前置依赖。
 
 当前 FastAPI 中间件对所有请求校验同一个用户存储 token，**新增 router 本身并不足以接通**。需要按已注册的路由边界分别校验 V2 设备身份和 `/api/audio`/用户 API 身份，再将受信 principal 传入用例；不能直接全局放行 `/v2`，也不能使设备 token 获得用户音频库权限。旧用户 token 的行为保持兼容。
 

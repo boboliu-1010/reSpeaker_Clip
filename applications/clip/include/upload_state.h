@@ -1,4 +1,4 @@
-/* Independent HTTPS metadata; never modifies session.json's phone sync flag. */
+/* Independent upload metadata; never modifies session.json's phone sync flag. */
 #ifndef CLIP_UPLOAD_STATE_H
 #define CLIP_UPLOAD_STATE_H
 #include <stdint.h>

@@ -1,5 +1,7 @@
 # 上传分段计时
 
+> 历史 HTTPS 实验记录：旧实现和工具已从当前分支移除。复现请使用历史提交 `7e7ab97`；当前入口见 [上传工具](../tools/upload/README.md)。
+
 此测量不调整窗口、缓冲、TLS 写入粒度、HTTP 分片、连接复用、重试或持久确认规则。
 构建时额外加载 `applications/clip/https-profile.conf`；默认构建关闭 `CONFIG_CLIP_HTTPS_PROFILE`，计时调用编译为空操作。
 

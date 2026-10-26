@@ -29,7 +29,7 @@ and is not backported. There is no new on-device AT API or persistent setting.
 ## Separate comparisons
 
 The maintained `dtls-single` preset now uses
-`applications/clip/https-network-backports.conf`: remembered-lease reuse,
+`applications/clip/network-backports.conf`: remembered-lease reuse,
 all four DHCP recovery fixes and all three ARP fixes are enabled together,
 with one INIT-REBOOT request before timeout-driven fallback to DISCOVER. A NAK
 in INIT-REBOOT immediately restarts discovery regardless of the old server.
@@ -40,21 +40,19 @@ copy. Shared NCS sources remain unchanged.
 This configuration change is not hardware acceptance of stale-lease recovery
 or a claim that all Wi-Fi/ARP delays are resolved. It retains the earlier AT
 compatibility fix; device flashing and network fault validation are separate.
-The isolated profiles below are retained for reproducing historical comparisons.
+For current DTLS comparisons, use the maintained `dtls-single` preset and append
+exactly one isolated overlay via `--extra-conf` in an independent build directory:
 
-Keep `https.conf`, `runtime.conf`, `netdiag.conf`,
-`https-connect-budget.conf`, and `https-wifi-no-stbc.conf` in that order.
-Append exactly one of these configurations in an independent build directory:
+* `applications/clip/network-dhcp-backport.conf`: enable lease reuse and the four
+  DHCP fixes, disable ARP fixes.
+* `applications/clip/network-arp-backport.conf`: use fresh DHCP, disable DHCP
+  backports, and enable only the three ARP fixes.
 
-* `https-dhcp-backport.conf`: restore DHCP lease reuse and apply only the four
-  DHCP fixes. Keep the original ARP implementation and diagnostics.
-* `https-arp-backport.conf`: retain fresh DHCP, apply only the three ARP fixes.
-  Compare with the existing fresh-DHCP baseline; do not enable both groups when
-  attributing a result to one group.
-
-TCP connect remains 10 seconds and TLS handshake 10 seconds; Wi-Fi power save,
-RX STBC, buffers, stacks, ARP table size, and external flash layout are not
-changed. Inspect the final `.config` and generated manifest for each build.
+These do not change DTLS handshake budgets, Wi-Fi power policy, RX STBC, buffers,
+stacks or the external flash layout. For a fresh-DHCP comparison without ARP
+fixes, additionally disable `CLIP_NETWORK_BACKPORT_ARP`; the regular preset enables
+it. Inspect the final `.config` and generated manifest before attributing results.
+Historical HTTPS/TCP comparison configurations are available at commit `7e7ab97`.
 
 `backport_network.py` verifies complete original-file SHA-256 hashes and unique
 insertion points before writing generated SDK copies under the build directory.
@@ -70,7 +68,7 @@ files at their normal relative paths suffice), then run:
 
 ```sh
 CLIP_TEST_SDK=/absolute/pinned/zephyr python3 -m unittest discover \
-  -s tools/https_poc -p 'test_*.py' -v
+  -s tools/upload/tests -p 'test_*.py' -v
 ```
 
 The backport tests compile actual transformed functions/branches with

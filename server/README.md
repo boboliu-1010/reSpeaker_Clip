@@ -1,7 +1,7 @@
 # Clip 录音接收服务
 
 服务端源码独立放在本目录。当前使用可靠文件上传协议＋DTLS 1.2＋UDP，默认端口为
-9527；旧 HTTPS 接收端已移除。设备构建和控制工具仍在 `tools/https_poc/`。
+9527；旧 HTTPS 接收端已移除。设备构建和控制工具仍在 `tools/upload/`。
 
 ## 文件
 
@@ -58,7 +58,7 @@ roger@100.58.19.213
 从仓库根目录运行：
 
 ```sh
-python3 -m unittest discover -s tools/https_poc -p 'test_*.py'
+python3 -m unittest discover -s tools/upload/tests -p 'test_*.py'
 ```
 
 其中包含 DTLS 接收、断点续传、连接接管、存储故障以及固件 C 逻辑测试。
@@ -66,7 +66,7 @@ python3 -m unittest discover -s tools/https_poc -p 'test_*.py'
 DTLS 网络用例，因此还需在有该依赖的环境执行：
 
 ```sh
-python3 -m unittest discover -s tools/https_poc -p 'test_dtls_receiver.py' -v
+python3 -m unittest discover -s tools/upload/tests -p 'test_dtls_receiver.py' -v
 ```
 
 协议与固件集成说明见 [DTLS 上传方案](../docs/dtls-upload-core.md)。

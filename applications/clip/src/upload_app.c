@@ -63,7 +63,7 @@ static void enqueue(struct app_event *e)
 void upload_app_publish(const char *type)
 {
     struct upload_app_status status;
-    https_poc_app_status(&status);
+    upload_runtime_app_status(&status);
     upload_app_publish_result(type, &status);
 }
 void upload_app_publish_result(const char *type, const struct upload_app_status *status)
@@ -106,7 +106,7 @@ void upload_app_poll(void)
         k_msgq_purge(&app_events);
         pending_valid = previous_valid = false;
         struct app_event e = {.network=true, .seq=(uint32_t)atomic_inc(&sequence)+1};
-        https_poc_app_network(&e.value.wifi);
+        upload_runtime_app_network(&e.value.wifi);
         if (send_event(&e)) { atomic_set(&resync, 1); return; }
     }
     if (!pending_valid) { pending_valid = !k_msgq_get(&app_events, &pending, K_NO_WAIT); }
@@ -115,7 +115,7 @@ void upload_app_poll(void)
         return;
     }
     struct app_event e = {.type="progress"};
-    https_poc_app_status(&e.value.upload);
+    upload_runtime_app_status(&e.value.upload);
     bool changed = !previous_valid || memcmp(&previous, &e.value.upload, sizeof(previous));
     bool transition = !previous_valid || previous.job!=e.value.upload.job ||
         previous.stage!=e.value.upload.stage || previous.active!=e.value.upload.active ||

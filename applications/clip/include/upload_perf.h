@@ -12,7 +12,7 @@ enum upload_perf_metric { UP_READ_US, UP_HASH_US, UP_HEADER_US, UP_BODY_US,
     UP_WAIT_READ_US, UP_WRITE_CALLS, UP_READ_CALLS, UP_WANT_WRITE,
     UP_WANT_READ, UP_FS_READS, UP_STATE_US, UP_HANDSHAKE_US, UP_SEEK_US,
     UP_RECORD_HASH_HITS, UP_RECORD_HASH_SAVE_US, UP_METRICS };
-#ifdef CONFIG_CLIP_HTTPS_PROFILE
+#ifdef CONFIG_CLIP_UPLOAD_PROFILE
 uint64_t upload_perf_now(void);
 void upload_perf_add(enum upload_perf_metric metric, uint64_t value);
 void upload_perf_begin(enum upload_perf_kind kind, const char *session,

@@ -111,7 +111,7 @@ AP support and negotiated use still determine whether STBC is used on the link.
 For the maintained configuration, run the helper with `--preset dtls-single --production`:
 
 ```sh
-python tools/https_poc/build.py \
+python tools/upload/build.py \
   --ncs /path/to/ncs --sdk /path/to/zephyr-sdk \
   --build /path/to/ncs/build-clip-dtls-candidate \
   --ca /path/to/public-test-ca.pem --preset dtls-single --production
@@ -169,7 +169,7 @@ Both time validity and CA/host verification remain mandatory.
 Run the host suite from the repository root:
 
 ```sh
-python -m unittest discover -s tools/https_poc -p 'test_*.py'
+python -m unittest discover -s tools/upload/tests -p 'test_*.py'
 ```
 
 `test_upload_window.py` runs the actual C window core under sanitizers.

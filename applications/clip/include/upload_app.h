@@ -20,8 +20,8 @@ struct upload_app_network {
     char ip[16];
 };
 /* Snapshots are supplied by the uploader; no credentials are exposed. */
-void https_poc_app_status(struct upload_app_status *out);
-void https_poc_app_network(struct upload_app_network *out);
+void upload_runtime_app_status(struct upload_app_status *out);
+void upload_runtime_app_network(struct upload_app_network *out);
 int upload_app_format_status(const struct upload_app_status *s, const char *type,
                              uint32_t seq, uint32_t lost, char *out, size_t size);
 int upload_app_format_network(const struct upload_app_network *s, bool event,

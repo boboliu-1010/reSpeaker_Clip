@@ -25,9 +25,9 @@ config CLIP_DEBUG_INTERFACES
 
 config CLIP_DTLS_UPLOAD
 	bool "Durable recording upload over DTLS"
-	depends on CLIP_HTTPS_POC
+	depends on CLIP_UPLOAD
 	select MBEDTLS_SSL_PROTO_DTLS
-	default n
+	default y
 	help
 	  Full recording application with one authenticated datagram connection,
 	  selective receive credit and server-authoritative durable checkpoints.
@@ -76,16 +76,16 @@ config CLIP_DTLS_READ_CACHE_BYTES
 	  Sizes above4096 allocate a separate per-file heap buffer. The4KiB hash
 	  buffer is retained. This setting also applies when timing is disabled.
 
-config CLIP_HTTPS_POC
-	bool "Experimental recording upload"
+config CLIP_UPLOAD
+	bool "Recording upload over DTLS"
 	default n
 	help
-	  Station-only, stopped-recording upload. Uses CDC-only USB, optional BLE
-	  App controls, and disables application OTA. Requires a supplied test CA.
+	  Station-only, stopped-recording upload over DTLS/UDP. Uses CDC-only USB, optional BLE
+	  App controls, and disables application OTA. Requires a supplied trusted CA.
 
 config CLIP_UPLOAD_APP
 	bool "BLE provisioning validation, upload controls and notifications"
-	depends on CLIP_HTTPS_POC && BT
+	depends on CLIP_UPLOAD && BT
 	default y
 	help
 	  Reuse the uploader for asynchronous Wi-Fi validation. Publish bounded,
@@ -102,9 +102,9 @@ config CLIP_UPLOAD_AUTODELETE
 	  Verify all segment journals before moving it to a private cleanup directory.
 	  Interrupted cleanup resumes there without sweeping historical recordings.
 
-config CLIP_HTTPS_PROFILE
+config CLIP_UPLOAD_PROFILE
 	bool "Passive upload phase timing via USB"
-	depends on CLIP_HTTPS_POC && CLIP_DEBUG_INTERFACES
+	depends on CLIP_UPLOAD && CLIP_DEBUG_INTERFACES
 	default n
 	help
 	  Opt-in bounded RAM event ring; no audio or credential logging.
@@ -112,34 +112,25 @@ config CLIP_HTTPS_PROFILE
 
 config CLIP_DTLS_PREPARE_MEASURE
 	bool "Diagnostic DTLS session replay and preparation measurement"
-	depends on CLIP_DTLS_PROFILE && CLIP_HTTPS_PROFILE
+	depends on CLIP_DTLS_PROFILE && CLIP_UPLOAD_PROFILE
 	default n
 	help
 	  Diagnostic-only session filter, one-pass replay and fresh hash calculation.
 	  Allows idle session deletion only while automatic upload is disabled.
 	  Does not alter transport parameters or file contents.
 
-config CLIP_TCP_TRACE
-	bool "Passive TCP retransmission observations via USB"
-	depends on CLIP_WIFI_DIAG && NET_TCP_CONGESTION_AVOIDANCE && NET_TCP_FAST_RETRANSMIT
-	default n
-	help
-	  Diagnostic image only. Replaces pinned SDK tcp.c with an instrumented
-	  build-local copy. USB enables an 8196-byte bounded RAM ring while idle.
-	  Does not change TCP timers, windows, packet contents or scheduling.
-
-config CLIP_HTTPS_STA_PS_OFF
-	bool "Disable station power save before experimental HTTPS upload"
-	depends on CLIP_HTTPS_POC
+config CLIP_UPLOAD_STA_PS_OFF
+	bool "Disable station power save before upload"
+	depends on CLIP_UPLOAD
 	default n
 	help
 	  Diagnostic comparison only: request WIFI_PS_DISABLED after DHCP and
-	  coexistence setup. Keep driver low-power support, TCP timeout, buffers,
+	  coexistence setup. Keep driver low-power support, buffers,
 	  and idle radio shutdown unchanged. Fail the job if the request fails.
 
 config CLIP_NETWORK_BACKPORT_DHCP
 	bool "Experimental pinned-SDK DHCP INIT-REBOOT fixes"
-	depends on CLIP_HTTPS_POC && NET_DHCPV4_INIT_REBOOT
+	depends on CLIP_UPLOAD && NET_DHCPV4_INIT_REBOOT
 	default n
 
 config CLIP_DHCP_REBOOT_ATTEMPTS
@@ -150,7 +141,7 @@ config CLIP_DHCP_REBOOT_ATTEMPTS
 
 config CLIP_NETWORK_BACKPORT_ARP
 	bool "Experimental pinned-SDK ARP pending-entry fixes"
-	depends on CLIP_HTTPS_POC
+	depends on CLIP_UPLOAD
 	default n
 	help
 	  Apply the pinned ARP fixes independently of optional diagnostics. Debug
@@ -620,8 +611,8 @@ config CLIP_WIFI_AUTH_LOG
 	  Intended for bounded station-authentication tests, disabled by default.
 
 config CLIP_WIFI_DIAG
-	bool "Passive HTTPS station network diagnostics"
-	depends on CLIP_DEBUG_INTERFACES && CLIP_HTTPS_POC && NET_STATISTICS_USER_API
+	bool "Passive upload station network diagnostics"
+	depends on CLIP_DEBUG_INTERFACES && CLIP_UPLOAD && NET_STATISTICS_USER_API
 	depends on NET_STATISTICS_PER_INTERFACE && NET_STATISTICS_IPV4
 	depends on !NET_TCP || NET_STATISTICS_TCP
 	default n

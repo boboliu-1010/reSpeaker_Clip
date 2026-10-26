@@ -309,7 +309,7 @@ int clip_init(void)
         return err;
     }
 
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
     err = usb_cdc_enable();
     if (err) { return err; }
 #endif

@@ -29,8 +29,8 @@
 #include "transfer.h"
 #include "wifi.h"
 #include "audio.h"
-#ifdef CONFIG_CLIP_HTTPS_POC
-#include "https_poc.h"
+#ifdef CONFIG_CLIP_UPLOAD
+#include "upload_runtime.h"
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
 #endif
@@ -379,8 +379,8 @@ static struct battery_load battery_load_snapshot(bool charger_connected)
 {
 	bool ap = wifi_ap_is_running(), transfer = transfer_is_active();
 	struct battery_load load = {0};
-#ifdef CONFIG_CLIP_HTTPS_POC
-	load.station_job = https_poc_active();
+#ifdef CONFIG_CLIP_UPLOAD
+	load.station_job = upload_runtime_active();
 	struct net_if *iface = net_if_get_first_wifi();
 	load.station_radio = !ap && iface && net_if_is_up(iface);
 #endif

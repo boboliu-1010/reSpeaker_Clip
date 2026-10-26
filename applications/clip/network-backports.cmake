@@ -8,7 +8,7 @@ if(CONFIG_CLIP_NETWORK_BACKPORT_ARP AND NOT CONFIG_CLIP_WIFI_DIAG)
     list(APPEND _backport_flags --arp)
 endif()
 execute_process(COMMAND "${PYTHON_EXECUTABLE}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/https_poc/backport_network.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/upload/backport_network.py"
     --zephyr "${ZEPHYR_BASE}" --output "${_backport_dir}" ${_backport_flags}
     RESULT_VARIABLE _backport_result)
 if(NOT _backport_result EQUAL 0)

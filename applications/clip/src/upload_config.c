@@ -63,6 +63,7 @@ static int load(const char *key, size_t length, settings_read_cb read, void *arg
     memset(&candidate, 0, sizeof(candidate));
     return 0;
 }
+/* Keep the deployed settings namespace: renaming would lose saved provisioning. */
 static struct settings_handler handler = {.name = "https", .h_set = load};
 int upload_config_init(struct upload_config *out)
 {

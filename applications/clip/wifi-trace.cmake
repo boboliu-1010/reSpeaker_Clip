@@ -5,7 +5,7 @@ if(CONFIG_CLIP_NETWORK_BACKPORT_ARP)
     list(APPEND _trace_backports --arp-backport)
 endif()
 execute_process(COMMAND "${PYTHON_EXECUTABLE}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/https_poc/instrument_network.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/upload/instrument_network.py"
     --zephyr "${ZEPHYR_BASE}" --output "${_trace_dir}" ${_trace_backports}
     RESULT_VARIABLE _trace_result)
 if(NOT _trace_result EQUAL 0)
@@ -52,14 +52,3 @@ clip_trace_source(subsys__net__l2__ethernet subsys/net/l2/ethernet/arp.c)
 clip_trace_source(subsys__net__l2__ethernet subsys/net/l2/ethernet/ethernet.c)
 clip_trace_source(nrf_wifi drivers/wifi/nrf_wifi/src/net_if.c)
 clip_trace_source(nrf-wifi-osal ../modules/lib/nrf_wifi/fw_if/umac_if/src/system/tx.c fmac_tx.c)
-
-if(CONFIG_CLIP_TCP_TRACE)
-    execute_process(COMMAND "${PYTHON_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/https_poc/instrument_tcp.py"
-        --zephyr "${ZEPHYR_BASE}" --output "${_trace_dir}/tcp.c"
-        RESULT_VARIABLE _tcp_trace_result)
-    if(NOT _tcp_trace_result EQUAL 0)
-        message(FATAL_ERROR "Pinned SDK TCP diagnostics could not be generated")
-    endif()
-    clip_trace_source(subsys__net__ip subsys/net/ip/tcp.c)
-endif()

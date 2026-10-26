@@ -34,8 +34,8 @@
 #include "display.h"
 #include "haptic.h"
 #include "usb_cdc.h"
-#ifdef CONFIG_CLIP_HTTPS_POC
-#include "https_poc.h"
+#ifdef CONFIG_CLIP_UPLOAD
+#include "upload_runtime.h"
 #include "upload_command.h"
 #endif
 
@@ -69,7 +69,7 @@ static void schedule_reboot(int delay_ms, bool clear_bonds)
 {
     reboot_clear_bonds = clear_bonds;
     int scheduled = k_work_schedule(&reboot_work, K_MSEC(delay_ms));
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
     if (scheduled >= 0) { upload_command_defer(); }
 #else
     ARG_UNUSED(scheduled);
@@ -272,7 +272,7 @@ static int cmd_gstat_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
     int data_len = snprintf(data_buf, sizeof(data_buf),
                      "{\"state\":\"%s\","
                      "\"recording\":%s,"
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
                      "\"record_pending\":%s,\"record_error\":%d,"
 #endif
                      "\"session\":%s%s%s,"
@@ -287,8 +287,8 @@ static int cmd_gstat_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
                      "\"device\":\"%s\"}",
                      clip_state_to_string(clip_event_get_state()),
                      audio_is_recording() ? "true" : "false",
-#ifdef CONFIG_CLIP_HTTPS_POC
-                     https_poc_record_pending() ? "true" : "false", https_poc_record_error(),
+#ifdef CONFIG_CLIP_UPLOAD
+                     upload_runtime_record_pending() ? "true" : "false", upload_runtime_record_error(),
 #endif
                      session_id ? "\"" : "", session_id ? session_id : "null", session_id ? "\"" : "",
                      recording_duration,
@@ -378,10 +378,10 @@ static int cmd_time_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
         uint8_t min = tm_info->tm_min;
         uint8_t sec = tm_info->tm_sec;
 
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
         /* One App time command updates both the recorder clock and the
          * certificate-verification wall clock/readiness state. */
-        if (https_poc_set_time(timestamp)) {
+        if (upload_runtime_set_time(timestamp)) {
             return create_json_response(false, "Time update failed or upload busy", NULL, response, len);
         }
 #endif
@@ -521,8 +521,8 @@ static int log_read_page(const char *args, char *response, size_t len)
     if (log_fs_active || clip_event_get_state() != CLIP_STATE_IDLE) {
         return create_json_response(false, "Stop logging and return to idle first", NULL, response, len);
     }
-#ifdef CONFIG_CLIP_HTTPS_POC
-    if (https_poc_active()) {
+#ifdef CONFIG_CLIP_UPLOAD
+    if (upload_runtime_active()) {
         return create_json_response(false, "Upload is active", NULL, response, len);
     }
 #endif
@@ -887,7 +887,7 @@ static int cmd_pair_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
             return create_json_response(false, "Failed to schedule SD erase", NULL,
                                         response, len);
         }
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
         upload_command_defer();
 #endif
 
@@ -960,8 +960,8 @@ static int cmd_format_handler(struct at_cmd_ctx *ctx, char *response, size_t len
 /* START Command Handler - Start recording */
 static int cmd_start_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
 {
-#ifdef CONFIG_CLIP_HTTPS_POC
-    if (https_poc_record_pending()) {
+#ifdef CONFIG_CLIP_UPLOAD
+    if (upload_runtime_record_pending()) {
         return create_json_response(true, NULL, "{\"pending\":true,\"session\":null}", response, len);
     }
 #endif
@@ -1001,7 +1001,7 @@ static int cmd_start_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
     struct clip_event_result_info info = {0};
     int ret = clip_post_event_sync(CLIP_EVENT_START, &info);
 
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
     if (!ret && info.result == CLIP_EVENT_OK && info.error_code == -EINPROGRESS) {
         return create_json_response(true, NULL, "{\"pending\":true,\"session\":null}", response, len);
     }
@@ -1042,8 +1042,8 @@ static int cmd_start_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
 /* STOP Command Handler - Stop recording */
 static int cmd_stop_handler(struct at_cmd_ctx *ctx, char *response, size_t len)
 {
-#ifdef CONFIG_CLIP_HTTPS_POC
-    if (https_poc_record_pending()) {
+#ifdef CONFIG_CLIP_UPLOAD
+    if (upload_runtime_record_pending()) {
         struct clip_event_result_info pending = {0};
         int ret = clip_post_event_sync(CLIP_EVENT_STOP, &pending);
         return create_json_response(!ret && pending.result == CLIP_EVENT_OK,
@@ -1927,8 +1927,8 @@ int at_commands_register(void)
 {
     int err;
 
-#ifdef CONFIG_CLIP_HTTPS_POC
-    err = https_poc_register();
+#ifdef CONFIG_CLIP_UPLOAD
+    err = upload_runtime_register();
     if (err) return err;
 #endif
 

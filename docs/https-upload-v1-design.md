@@ -1,5 +1,7 @@
 # reSpeaker Clip HTTPS 上传首版方案
 
+> 历史 HTTPS 实验记录：旧实现和工具已从当前分支移除。复现请使用历史提交 `7e7ab97`；当前入口见 [上传工具](../tools/upload/README.md)。
+
 > 日期：2026-09-20
 >
 > 开发分支：`experiment/https-upload`

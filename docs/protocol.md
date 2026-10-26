@@ -3,8 +3,8 @@
 > The maintained DTLS upload build retains the baseline AT command handlers,
 > including recording settings and BLE download. The optimized preset still
 > disables Wi-Fi AP support and USB disk; restoring command admission does not
-> enable these compiled-out components. Older HTTPS experiment
-> notes are in [HTTPS experiment](../tools/https_poc/README.md).
+> enable these compiled-out components. Current build and diagnostic entry points
+> are in [upload tools](../tools/upload/README.md).
 
 Baseline command compatibility in the upload build:
 

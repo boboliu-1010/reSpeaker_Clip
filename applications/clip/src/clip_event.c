@@ -29,8 +29,8 @@
 #include "storage.h"
 #include "transfer.h"
 #include "usb_cdc.h"
-#ifdef CONFIG_CLIP_HTTPS_POC
-#include "https_poc.h"
+#ifdef CONFIG_CLIP_UPLOAD
+#include "upload_runtime.h"
 #endif
 #include "config.h"
 
@@ -159,7 +159,7 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
                                           int32_t *rc, uint16_t *group, bool *abort_more,
                                           void *data, size_t data_size)
 {
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
     /* This experiment uses bootloader USB recovery, not application DFU. */
     if (event == MGMT_EVT_OP_IMG_MGMT_DFU_STARTED || event == MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK) {
         *rc = MGMT_ERR_EBUSY;
@@ -304,8 +304,8 @@ static void fg_save_work_handler(struct k_work *work)
  * storage_idle_poweroff(), closing the TOCTOU with the unlocked tick. */
 static bool clip_sd_busy(void)
 {
-#ifdef CONFIG_CLIP_HTTPS_POC
-    if (https_poc_active() || https_poc_record_pending()) { return true; }
+#ifdef CONFIG_CLIP_UPLOAD
+    if (upload_runtime_active() || upload_runtime_record_pending()) { return true; }
 #endif
     if ((enum clip_state)atomic_get(&g_state) != CLIP_STATE_IDLE) {
         return true;
@@ -462,7 +462,7 @@ void clip_event_process(void)
 
     while (k_msgq_get(&clip_ev_msgq, &item, K_NO_WAIT) == 0) {
         enum clip_state current = (enum clip_state)atomic_get(&g_state);
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
         bool deferred_record = false;
         enum clip_event_result deferred_result = CLIP_EVENT_INVALID;
 #endif
@@ -472,11 +472,11 @@ void clip_event_process(void)
             goto notify;
         }
 
-#ifdef CONFIG_CLIP_HTTPS_POC
-        if (https_poc_event(item.event, item.result,
+#ifdef CONFIG_CLIP_UPLOAD
+        if (upload_runtime_event(item.event, item.result,
             current == CLIP_STATE_IDLE && !audio_is_recording() &&
             !transfer_is_active() && !ota_in_progress)) {
-            if (item.event == CLIP_EVENT_UPLOAD_END && https_poc_record_pending()) {
+            if (item.event == CLIP_EVENT_UPLOAD_END && upload_runtime_record_pending()) {
                 /* END follows complete upload cleanup. Replay directly so
                  * a full queue cannot lose the pending recording request. */
                 item.event = CLIP_EVENT_START;
@@ -520,7 +520,7 @@ void clip_event_process(void)
                                                          : (enum clip_state)next;
 
         enum clip_event_result result = execute_transition(item.event, current, new_state);
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
         deferred_result = result;
 #endif
 
@@ -538,8 +538,8 @@ void clip_event_process(void)
         }
 
 notify:
-#ifdef CONFIG_CLIP_HTTPS_POC
-        if (deferred_record) { https_poc_record_complete(deferred_result); }
+#ifdef CONFIG_CLIP_UPLOAD
+        if (deferred_record) { upload_runtime_record_complete(deferred_result); }
 #endif
         if (item.done_sem) {
             k_sem_give(item.done_sem);

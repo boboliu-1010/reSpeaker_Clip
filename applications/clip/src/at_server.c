@@ -40,7 +40,7 @@ static struct {
 
 /* Command registry */
 static struct {
-#if defined(CONFIG_CLIP_HTTPS_POC) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
+#if defined(CONFIG_CLIP_UPLOAD) && defined(CONFIG_CLIP_DEBUG_INTERFACES)
     /* Include App controls and all optional diagnostics, with small headroom. */
     const struct at_command *cmds[52];
 #else
@@ -50,8 +50,8 @@ static struct {
 } cmd_registry = { .count = 0 };
 
 /* Forward declarations */
-#ifdef CONFIG_CLIP_HTTPS_POC
-#include "https_poc.h"
+#ifdef CONFIG_CLIP_UPLOAD
+#include "upload_runtime.h"
 #include "upload_command.h"
 #endif
 static void at_server_thread_func(void *p1, void *p2, void *p3);
@@ -284,8 +284,8 @@ static void process_command(struct at_queue_item *item)
             }
 
             /* Call handler */
-#ifdef CONFIG_CLIP_HTTPS_POC
-            if (https_poc_command_begin(cmd_name, cmd_type)) {
+#ifdef CONFIG_CLIP_UPLOAD
+            if (upload_runtime_command_begin(cmd_name, cmd_type)) {
                 create_json_response(false, "Busy: upload or conflicting device operation", NULL,
                                      at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
                 SEND_RESPONSE();
@@ -293,7 +293,7 @@ static void process_command(struct at_queue_item *item)
             }
 #endif
             ret = cmd->handler(&ctx, at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
-#ifdef CONFIG_CLIP_HTTPS_POC
+#ifdef CONFIG_CLIP_UPLOAD
             upload_command_end();
 #endif
 

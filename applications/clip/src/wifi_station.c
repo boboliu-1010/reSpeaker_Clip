@@ -11,7 +11,7 @@
 #endif
 #include <string.h>
 #include "wifi.h"
-#include "https_poc.h"
+#include "upload_runtime.h"
 #include "wifi_diag.h"
 #include "config.h"
 
@@ -154,7 +154,7 @@ int wifi_station_connect(const char *ssid, const char *password, atomic_t *cance
 #else
     wifi_diag_capture(WIFI_DIAG_COEX, 0);
 #endif
-#ifdef CONFIG_CLIP_HTTPS_STA_PS_OFF
+#ifdef CONFIG_CLIP_UPLOAD_STA_PS_OFF
     /* Change only 802.11 station PS, after association and all setup callbacks.
      * Do not disable the driver's low-power support or query live RPU stats.
      * A successful request means command acceptance, not over-air proof. */

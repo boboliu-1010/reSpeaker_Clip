@@ -211,7 +211,8 @@ static int cmd_storage_handler(struct at_cmd_ctx *ctx, char *response, size_t le
 {
     struct storage_stats stats;
 
-    if (ctx->type != AT_CMD_TYPE_TEST && ctx->type != AT_CMD_TYPE_EXEC) {
+    if (ctx->type != AT_CMD_TYPE_READ && ctx->type != AT_CMD_TYPE_TEST &&
+        ctx->type != AT_CMD_TYPE_EXEC) {
         return create_json_response(false, "Use AT+STORAGE?", NULL, response, len);
     }
 

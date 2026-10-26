@@ -13,12 +13,19 @@
 | `dtls_upload_session.py` | OPEN／DATA／QUERY／FINISH 状态处理 |
 | `dtls_upload_store.py` | 窗口接收、持久检查点与完整文件校验 |
 | `resume_store.py` | 共用落盘、恢复、原子检查点及错误类型 |
-| `profile_timing.py` | 可选存储耗时采样 |
 | `make_credentials.py` | 隔离测试使用的临时证书生成工具 |
 
 ## 启动
 
-从仓库根目录运行，使用 Python 3.10+，并安装支持 DTLS API 的 pyOpenSSL。
+从仓库根目录运行，使用 Python 3.10+。`requirements.txt` 固定当前验证环境的
+pyOpenSSL 与 cryptography 版本；在独立环境安装，不覆盖系统或现有运行服务：
+
+```sh
+python3 -m venv /path/to/receiver-venv
+/path/to/receiver-venv/bin/python -m pip install -r server/requirements.txt
+```
+
+后续命令使用该虚拟环境的 Python。
 依赖需提供 `SSL.DTLS_SERVER_METHOD`、DTLS cookie 回调及密文 MTU 设置接口。
 `--help` 不读取凭据、不启动监听：
 

@@ -1,18 +1,17 @@
-"""Durable, bounded recording chunks for one receiver process.
+"""Durable checkpoint storage shared by DTLS upload writers.
 
 The checkpoint, not the partial file length, is the acknowledged offset. Data
 is fsynced before publishing that checkpoint; recovery truncates any extra tail.
-The receiver's shared commit lock also serializes legacy whole-file publication.
+Callers hold the store lock while recovering or publishing an object's state.
 """
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
-from .profile_timing import measure, timed_lock
 
 MAX_FILE = 8 * 1024 * 1024
-MAX_CHUNK = 16 * 1024
+HASH_READ_BYTES = 16 * 1024
 
 
 class ResumeError(Exception):
@@ -35,16 +34,11 @@ class ResumeStore:
     def _sync_directory(self):
         fd = os.open(self.directory, os.O_RDONLY)
         try:
-            with measure('directory_fsync_us'):
-                os.fsync(fd)
+            os.fsync(fd)
         finally:
             os.close(fd)
 
     def _save(self, path, state):
-        with measure('checkpoint_us'):
-            return self._save_impl(path, state)
-
-    def _save_impl(self, path, state):
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", dir=self.directory,
@@ -52,8 +46,7 @@ class ResumeStore:
                 temporary = Path(output.name)
                 json.dump(state, output, separators=(",", ":"))
                 output.flush()
-                with measure('checkpoint_fsync_us'):
-                    os.fsync(output.fileno())
+                os.fsync(output.fileno())
             os.replace(temporary, path)
             temporary = None
             self._sync_directory()
@@ -63,21 +56,11 @@ class ResumeStore:
 
     @staticmethod
     def _hash(path):
-        with measure('whole_hash_us'):
-            return ResumeStore._hash_impl(path)
-
-    @staticmethod
-    def _hash_impl(path):
         digest = hashlib.sha256()
         with path.open("rb") as source:
-            for block in iter(lambda: source.read(MAX_CHUNK), b""):
+            for block in iter(lambda: source.read(HASH_READ_BYTES), b""):
                 digest.update(block)
         return digest.hexdigest()
-
-    @staticmethod
-    def _receipt(state, stored=False):
-        return {"status": "stored" if stored else "partial", "size": state["size"],
-                "sha256": state["sha256"], "offset": state["offset"]}
 
     def _finish(self, paths, state):
         target, partial, checkpoint = paths
@@ -94,7 +77,6 @@ class ResumeStore:
         self._sync_directory()
         checkpoint.unlink(missing_ok=True)
         self._sync_directory()
-        return self._receipt(state, stored=True)
 
     def _load(self, object_id, size, digest):
         paths = self._paths(object_id)
@@ -139,48 +121,6 @@ class ResumeStore:
             return paths, state, True
         if checkpoint.exists():
             # A previous save may have renamed the checkpoint but failed its
-            # directory fsync. Make that publication durable before GET acks it.
+            # directory fsync. Make that publication durable before an OPEN reply acknowledges it.
             self._sync_directory()
         return paths, state, False
-
-    def status(self, object_id, size, digest):
-        with timed_lock(self.lock):
-            with measure('load_us'):
-                _, state, stored = self._load(object_id, size, digest)
-            return self._receipt(state, stored)
-
-    def commit(self, object_id, size, digest, offset, data, chunk_hash):
-        if not 0 < len(data) <= MAX_CHUNK or not 0 <= offset < offset + len(data) <= size:
-            raise ResumeError(400, "invalid_chunk")
-        with measure('chunk_hash_us'):
-            actual_hash = hashlib.sha256(data).hexdigest()
-        if actual_hash != chunk_hash:
-            raise ResumeError(422, "chunk_hash_mismatch")
-        with timed_lock(self.lock):
-            with measure('load_us'):
-                paths, state, stored = self._load(object_id, size, digest)
-            target, partial, checkpoint = paths
-            if offset < state["offset"] and offset + len(data) <= state["offset"]:
-                with (target if stored else partial).open("rb") as existing:
-                    existing.seek(offset)
-                    matches = existing.read(len(data)) == data
-                if matches:
-                    return 200, self._receipt(state, stored)
-            if stored or offset != state["offset"]:
-                raise ResumeError(409, "offset_conflict", offset=state["offset"])
-            if not checkpoint.exists():
-                self._save(checkpoint, state)
-            fd = os.open(partial, os.O_RDWR | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "r+b") as output:
-                output.seek(offset)
-                with measure('data_write_us'):
-                    if output.write(data) != len(data):
-                        raise OSError("short file write")
-                    output.flush()
-                with measure('data_fsync_us'):
-                    os.fsync(output.fileno())
-            state = dict(state, offset=offset + len(data))
-            self._save(checkpoint, state)
-            if state["offset"] == size:
-                return 201, self._finish(paths, state)
-            return 200, self._receipt(state)

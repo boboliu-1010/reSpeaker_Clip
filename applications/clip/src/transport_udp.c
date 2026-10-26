@@ -5,7 +5,7 @@
  *
  * UDP Transport — Fire-and-forget DATA frames with per-file CRC32 verification.
  *
- * Protocol: see docs/udp_protocol.md
+ * Protocol: see docs/protocol.md, Appendix D
  *
  * Memory usage: ~100 bytes static state. No frame buffering.
  */

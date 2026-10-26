@@ -100,6 +100,21 @@ void dtls_upload_close(struct dtls_upload *s)
     mbedtls_ssl_free(&s->ssl); mbedtls_ssl_config_free(&s->config); mbedtls_x509_crt_free(&s->ca);
     k_free(s);
 }
+
+static int handshake_error(int error)
+{
+    switch (error) {
+    case MBEDTLS_ERR_SSL_TIMEOUT: return -ETIMEDOUT;
+    case MBEDTLS_ERR_X509_CERT_VERIFY_FAILED: return -EACCES;
+    case MBEDTLS_ERR_SSL_ALLOC_FAILED: return -ENOMEM;
+    case MBEDTLS_ERR_SSL_BAD_INPUT_DATA: return -EINVAL;
+    case MBEDTLS_ERR_SSL_INVALID_RECORD:
+    case MBEDTLS_ERR_SSL_UNEXPECTED_MESSAGE: return -EPROTO;
+    case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY: return -ECONNRESET;
+    default: return -EIO;
+    }
+}
+
 int dtls_upload_open(struct dtls_upload **out, const char *host, const char *port,
                       const unsigned char *ca, size_t ca_size, int (*check)(void))
 {
@@ -144,7 +159,7 @@ int dtls_upload_open(struct dtls_upload **out, const char *host, const char *por
             ret = mbedtls_ssl_handshake(&s->ssl);
             if (!ret) { ret = mbedtls_ssl_get_verify_result(&s->ssl) ? -EACCES : 0; break; }
             if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-                ret = ret == MBEDTLS_ERR_SSL_TIMEOUT ? -ETIMEDOUT : -EACCES; break;
+                ret = handshake_error(ret); break;
             }
             ret = wait_for(s, ret, deadline); if (ret) { break; }
         }

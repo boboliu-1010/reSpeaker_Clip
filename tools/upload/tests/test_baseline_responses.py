@@ -17,6 +17,7 @@ class BaselineResponsesTest(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory()
         root = Path(cls.directory.name)
         source = (ROOT/'applications/clip/src/at_commands.c').read_text()
+        parser = (ROOT/'applications/clip/src/at_server.c').read_text()
         code = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -28,6 +29,10 @@ class BaselineResponsesTest(unittest.TestCase):
 #define AT_ERR_NOMEM 4
 #define AT_CMD_TYPE_SET 1
 #define AT_CMD_TYPE_TEST 0
+#define AT_CMD_TYPE_READ 3
+#define AT_OK 0
+#define AT_ERR_PARSE 1
+#define AT_ERR_PARAM 2
 #define AT_CMD_TYPE_EXEC 2
 #define CLIP_EVENT_STATUS_SHOW 1
 #define MODE_NORMAL 0
@@ -35,7 +40,9 @@ class BaselineResponsesTest(unittest.TestCase):
 #define K_MSEC(v) (v)
 #define LOG_WRN(...) ((void)0)
 #define LOG_ERR(...) ((void)0)
-struct at_cmd_ctx {int type;const char *args;};
+struct at_cmd_ctx {uint8_t type;const char *args;};
+struct storage_stats {uint32_t total_mb,free_space_mb;uint64_t total_bytes;bool is_mounted;};
+static int storage_get_stats(struct storage_stats*s){*s=(struct storage_stats){.total_mb=100,.free_space_mb=60,.total_bytes=2*1024*1024,.is_mounted=true};return 0;}
 enum recording_mode {normal=0,enhanced=1};
 struct clip_context {struct {enum recording_mode mode;int auto_delete_days;unsigned oled_brightness;}config;};
 static struct clip_context device={.config={.mode=normal,.auto_delete_days=-1,.oled_brightness=32}};
@@ -55,13 +62,19 @@ static int config_set_wifi_reg_domain(const char *v){(void)v;return 0;}
 static unsigned config_get_wifi_channel(void){return 6;}
 static const char *config_get_wifi_reg_domain(void){return "CN";}
 '''
-        for name in ('create_json_response','extract_int','cmd_pair_handler','cmd_mode_handler',
+        code += function(parser, 'static const char *skip_whitespace(')
+        code += function(parser, 'static int parse_command(')
+        for name in ('create_json_response','cmd_storage_handler','extract_int','cmd_pair_handler','cmd_mode_handler',
                      'cmd_autodel_handler','cmd_brightness_handler','cmd_wificfg_handler'):
             code += function(source,'static int '+name+'(')
         code += r'''
 int main(int argc,char **argv){
  assert(argc==2);struct at_cmd_ctx ctx={.type=AT_CMD_TYPE_TEST};char out[1024]={0};int n=0;
- if(!strcmp(argv[1],"paired")||!strcmp(argv[1],"unpaired")){
+ if(!strncmp(argv[1],"storage-",8)){
+  const char *wire=!strcmp(argv[1],"storage-read")?"AT+STORAGE?":!strcmp(argv[1],"storage-test")?"AT+STORAGE=?":!strcmp(argv[1],"storage-exec")?"AT+STORAGE":"AT+STORAGE=bad";
+  char name[32]={0},args[256]={0};assert(!parse_command(wire,strlen(wire),name,args,&ctx.type));assert(!strcmp(name,"STORAGE"));ctx.args=args;
+  n=cmd_storage_handler(&ctx,out,sizeof(out));
+ }else if(!strcmp(argv[1],"paired")||!strcmp(argv[1],"unpaired")){
   bonded=!strcmp(argv[1],"paired");n=cmd_pair_handler(&ctx,out,sizeof(out));assert(!reset_calls);
  }else if(!strcmp(argv[1],"mode")){n=cmd_mode_handler(&ctx,out,sizeof(out));}
  else if(!strcmp(argv[1],"mode-set")){ctx.type=AT_CMD_TYPE_SET;ctx.args="enhanced";n=cmd_mode_handler(&ctx,out,sizeof(out));}
@@ -106,3 +119,10 @@ int main(int argc,char **argv){
             with self.subTest(case=case):
                 reply=self.response(case);self.assertTrue(reply['ok']);self.assertEqual(reply['data'],expected)
         self.assertFalse(self.response('mode-error')['ok'])
+
+    def test_storage_queries_use_actual_at_parser_and_preserve_contract(self):
+        expected={'mounted':True,'total_mb':100,'free_mb':60,'used_mb':40,'used_pct':40,'recorded_mb':2}
+        for case in ('storage-read','storage-exec','storage-test'):
+            with self.subTest(case=case):
+                self.assertEqual(self.response(case),{'ok':True,'data':expected})
+        self.assertFalse(self.response('storage-set')['ok'])

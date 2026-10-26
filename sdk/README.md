@@ -1,20 +1,16 @@
 # reSpeaker Clip SDK
 
-> Experimental HTTPS profile: `experiment/https-runtime-0.1.2` replaces the AP
-> with Station mode and disables the USB disk. Use the dedicated
-> [USB HTTPS tools](../tools/https_poc/README.md) for credentials and upload
-> control; the SDK does not provide those experimental commands as high-level
-> methods. `AT+RES` remains available over BLE for resource measurements when
-> enabled, including while an upload is active. Standard AP/UDP workflows below
-> apply to the normal firmware profile.
-> The experimental USB uploader uses the [v2 resumable protocol](../docs/https-resume-v2.md).
-> Its `confirmed` offset, rather than bytes sent, is the server's durable checkpoint;
-> this does not add an SDK automatic-upload queue.
-> [Persistent HTTPS state](../docs/https-upload-state.md) is queried separately
-> with `UPLOADSTATE`; it does not reuse the SDK's phone synchronization fields.
-> [Idle automatic upload](../docs/https-auto-upload.md) is configured through USB
-> `UPLOADAUTO`, `UPLOADSAVE`, `UPLOADCLEAR`, and `UPLOADCLOCK`; `UPLOADLIST`
-> provides cursor pages. Scheduling runs in firmware, independently of the SDK.
+> The maintained recording-upload firmware uses Station Wi-Fi and DTLS/UDP;
+> AP service, USB disk access and application BLE OTA are disabled in that preset.
+> See [upload behavior](../docs/dtls-upload-core.md) and the
+> [BLE/USB provisioning contract](../docs/protocol.md#station-wi-fi-provisioning-in-the-upload-build).
+> The SDK has no high-level upload scheduler: use `client.request()` over BLE for
+> `NETCFG`, `UPLOADCFG`, `NETCHECK`, `UPLOADAUTO`, `UPLOAD?`, `UPLOADCANCEL`,
+> `UPLOADSTATE` and `UPLOADLIST`. Scheduling and persistence run in firmware.
+> `confirmed` is the server's durable checkpoint, distinct from bytes sent or received
+> and from phone synchronization. Developer-only commands are USB-only and absent
+> in production; there is no `UPLOADSAVE` command.
+> The AP/UDP client workflows below require a separate AP-capable firmware build.
 
 The new Python SDK for the current reSpeaker Clip firmware.  It is intentionally
 independent from `applications/clip/tests`: that directory remains the legacy

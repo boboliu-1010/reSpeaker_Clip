@@ -87,9 +87,9 @@ per-frame status; an unavailable status is not a transmit failure. PHY timestamp
 strings are opaque. The USB engineering collector supports `--nettx`; the
 normal SDK recording API is unchanged.
 
-## Experimental recording priority
+## Recording priority in upload firmware
 
-In HTTPS experimental firmware, `await client.start_recording()` during an
+In the maintained DTLS upload firmware, `await client.start_recording()` during an
 upload returns `None` for the accepted, deferred request. It does not wait for
 network cleanup or guarantee that capture has begun. Poll `await client.status()`:
 `Status.record_pending` means cleanup/start is pending; `Status.record_error`
@@ -97,6 +97,10 @@ contains the last deferred-start result (zero or negative errno). Only
 `Status.recording` confirms capture, with the actual `session_id`. Repeated START
 requests coalesce without changing the pending mode. `stop_recording()` cancels a
 pending start. Stock status responses default these optional fields to `False`
-and `0`. TLS connect remains potentially blocking, so start latency still needs
-hardware validation. This recording API does not schedule uploads; the separate
-USB HTTPS tools implement the [v2 resumable protocol](../../docs/https-resume-v2.md).
+and `0`. Network cleanup, cryptographic work and audio startup still require
+end-to-end device validation. This recording API does not schedule uploads.
+The firmware's [DTLS upload flow](../../docs/dtls-upload-core.md) and
+[BLE/USB commands](../../docs/protocol.md#ble-network-validation-and-automatic-upload-control)
+are separate from phone file-download synchronization. Use `client.request()`
+over BLE for the supported provisioning/upload commands; developer diagnostics
+remain USB-only and are excluded from production.

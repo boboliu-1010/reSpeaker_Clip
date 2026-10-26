@@ -7,7 +7,7 @@
  * Receives AT commands from client and dispatches to AT server.
  * Receives ACK frames and forwards to transport_udp for sliding window.
  *
- * Protocol: CLIP UDP Transfer Protocol (see docs/udp_protocol.md)
+ * Protocol: CLIP UDP Transfer Protocol (see docs/protocol.md, Appendix D)
  *
  * Server sends: DATA, FILE_START, FILE_END, TRANSFER_DONE, AT_RESP, HEARTBEAT
  * Server receives: ACK, HEARTBEAT, AT commands (plain text)

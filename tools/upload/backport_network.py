@@ -1,6 +1,6 @@
 """Generate opt-in network fixes against the exact, pinned NCS v3.3.0 sources.
 
-The shared SDK is never edited. See docs/network-backports-0.1.2.md for the
+The shared SDK is never edited. See docs/network.md for the
 upstream commits and the single application-owned Kconfig adaptation.
 """
 import argparse

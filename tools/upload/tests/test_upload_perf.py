@@ -1,75 +1,15 @@
-"""Validate timing publication, bounded history, and unchanged durable receipts."""
-from concurrent.futures import ThreadPoolExecutor
+"""Exercise the firmware phase-timing ring, without legacy HTTP profiling."""
 import errno
-import hashlib
 import json
 from pathlib import Path
 import subprocess
 import tempfile
-import threading
 import unittest
-
-from server.profile_timing import FileSink, identify, measure, request
-from server.resume_store import ResumeStore
 
 ROOT = Path(__file__).resolve().parents[3]
 
 
-class ProfileTest(unittest.TestCase):
-    def test_server_measurements_are_request_local_and_do_not_change_storage(self):
-        records = []
-        with tempfile.TemporaryDirectory() as directory:
-            store = ResumeStore(directory, threading.Lock())
-
-            def run(number):
-                body = bytes([number]) * 20000
-                digest = hashlib.sha256(body).hexdigest()
-                identity = hashlib.sha256(str(number).encode()).hexdigest()
-                with request(records.append, 'PUT'):
-                    identify(object_id=identity, offset=0, length=len(body))
-                    with measure('body_receive_us'):
-                        pass
-                    for offset in (0, 16384):
-                        block = body[offset:offset + 16384]
-                        code, receipt = store.commit(identity, len(body), digest, offset,
-                                                     block, hashlib.sha256(block).hexdigest())
-                    self.assertEqual(code, 201)
-                    self.assertEqual(receipt['offset'], len(body))
-                    self.assertEqual((Path(directory) / (identity + '.bin')).read_bytes(), body)
-
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                list(pool.map(run, (1, 2, 3)))
-        self.assertEqual(len(records), 3)
-        self.assertEqual(len({r['object_id'] for r in records}), 3)
-        for record in records:
-            for name in ('elapsed_us', 'body_receive_us', 'lock_wait_us', 'chunk_hash_us',
-                         'load_us', 'data_write_us', 'data_fsync_us', 'checkpoint_us',
-                         'checkpoint_fsync_us', 'directory_fsync_us', 'whole_hash_us'):
-                self.assertGreaterEqual(record[name], 0)
-            self.assertNotIn('Authorization', json.dumps(record))
-
-    def test_off_mode_sink_failure_and_bounded_private_output(self):
-        def failing_sink(record):
-            raise OSError('test sink failure')
-        with request(None, 'PUT'):
-            identify(unused='not retained')
-            with measure('unused'):
-                pass
-        with request(failing_sink, 'PUT'):
-            identify(offset=0)
-        with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / 'profile.jsonl'
-            sink = FileSink(target, limit=2)
-            try:
-                for number in range(4):
-                    sink({'number': number})
-                with self.assertRaises(FileExistsError):
-                    FileSink(target)
-            finally:
-                sink.close()
-            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
-            self.assertEqual([json.loads(x)['number'] for x in target.read_text().splitlines()], [0, 1])
-
+class UploadPerfTest(unittest.TestCase):
     def test_real_c_ring_cursor_overwrite_busy_oom_and_disable(self):
         source = (ROOT / 'applications/clip/src/upload_perf.c').read_text()
         source = '\n'.join(line for line in source.splitlines() if not line.startswith('#include'))

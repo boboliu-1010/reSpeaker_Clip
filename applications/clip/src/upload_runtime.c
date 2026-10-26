@@ -59,14 +59,9 @@ static atomic_t confirmed, resume_from, total_bytes;
 static atomic_t state_error;
 static atomic_t stalled;
 static atomic_t record_pending, record_error, cleanup_error;
-enum { TLS_SETUP_IDLE, TLS_SETUP_DNS, TLS_SETUP_SOCKET, TLS_SETUP_CERTIFICATE,
-       TLS_SETUP_VERIFY, TLS_SETUP_HOSTNAME, TLS_SETUP_SEND_TIMEOUT,
-       TLS_SETUP_RECEIVE_TIMEOUT, TLS_SETUP_HANDSHAKE, TLS_SETUP_DATA };
+enum { TLS_SETUP_IDLE, TLS_SETUP_HANDSHAKE, TLS_SETUP_DATA };
 static atomic_t tls_step;
-static const char *const tls_steps[] = {"idle", "resolve", "socket", "certificate",
-    "peer_verify", "hostname", "send_timeout", "receive_timeout", "handshake",
-    "datagram"
-};
+static const char *const tls_steps[] = {"idle", "handshake", "datagram"};
 static K_SEM_DEFINE(start_job, 0, 1);
 static struct upload_config *configuration;
 #define settings (*configuration)

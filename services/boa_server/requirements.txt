@@ -1,0 +1,5 @@
+-r ../audio_storage/requirements.lock.txt
+pyOpenSSL==26.4.0
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12

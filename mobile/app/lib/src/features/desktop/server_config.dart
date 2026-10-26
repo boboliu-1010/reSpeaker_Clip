@@ -22,18 +22,20 @@ class ServerConfig {
     final data = jsonDecode(await file.readAsString()) as Map;
     return {
       'address': data['address'] as String,
-      'token': data['token'] as String
+      'token': data['token'] as String,
+      'caPath': data['caPath'] as String? ?? ''
     };
   }
 
-  Future<void> save(String address, String token) async {
+  Future<void> save(String address, String token, {String caPath = ''}) async {
     await file.parent.create(recursive: true);
     await _protect(file.parent.path, '700');
     final temp = File('${file.path}.part');
     try {
       await temp.create();
       await _protect(temp.path, '600');
-      await temp.writeAsString(jsonEncode({'address': address, 'token': token}),
+      await temp.writeAsString(
+          jsonEncode({'address': address, 'token': token, 'caPath': caPath}),
           flush: true);
       await temp.rename(file.path);
     } finally {

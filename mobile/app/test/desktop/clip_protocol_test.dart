@@ -9,7 +9,7 @@ void main() {
     expect(checkedClipReply({'ok': true, 'state': 'idle'})['state'], 'idle');
   });
   test('desktop uses only supported recording commands', () {
-    expect(clipRecordingCommands.values, contains('AT+MARK'));
+    expect(clipRecordingCommands.values.toSet(), {'AT+START', 'AT+STOP'});
     expect(
         clipRecordingCommands.values
             .any((s) => s.contains('PURGE') || s.contains('MARK=')),

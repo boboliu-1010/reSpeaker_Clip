@@ -1,3 +1,21 @@
+# Boa Voice macOS Beta 4
+
+当前版本：**1.0.1-beta.4+4**。开发入口 `https://100.58.19.213:9528`。
+
+- 本地录音、播放、导入/导出、回收站和自动上传。
+- Clip BLE 连接、状态、开始/停止录音、配网、上传目标配置、时间同步、自动上传与进度。
+- App/Clip 统一服务器文件列表，按时间倒序；用户之间隔离。Clip 原件可导出。
+
+安装 DMG 后拖入 Applications，再从应用程序打开。未经过 Apple 公证；首次若被阻止，打开一次后到「系统设置 → 隐私与安全性」点击 Boa Voice 旁的「仍要打开」，由本人完成系统确认。
+
+「服务设置」填 HTTPS 根地址、用户令牌；使用开发证书时点「导入 CA / 开发证书」，再连接并保存。凭据保存在当前用户的私有配置文件中，不使用钥匙串。设备令牌用于 Clip，不能填成 App 用户令牌。
+
+「Clip 设备」连接并配对 → 保存 Wi-Fi → 保存 Server 主机:端口、设备 ID/设备令牌 → 检查 Wi-Fi → 同步时间 → 开启自动上传。Clip 固件需要信任对应 DTLS CA。当前先交付 Beta，开发机外部 UDP 连通性待网络处理后复测。
+
+[Server 安装与登记](services/boa_server/README.md) · [功能与协议](docs/product/boa-voice-overview.md) · [Beta 4 验收](docs/releases/boa-desktop-v1.0.1-beta.4.md)
+
+---
+
 # Boa Voice：macOS 桌面端与音频存储服务
 
 本分支在 reSpeaker Clip 工程中增加个人音频工作台。桌面端使用 Flutter，服务端使用 Python / FastAPI、SQLite 和磁盘文件；两者通过 HTTP 通信，可独立启动。普通音频管理不需要 Clip 硬件。

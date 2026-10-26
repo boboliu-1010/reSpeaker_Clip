@@ -5,9 +5,11 @@ import 'package:sensecraft_voice/sensecraft_voice.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'clip_protocol.dart';
 import 'clip_status.dart';
+import 'clip_upload_panel.dart';
 
 class DesktopClipPage extends StatefulWidget {
-  const DesktopClipPage({super.key});
+  const DesktopClipPage({super.key, this.serverAddress = ''});
+  final String serverAddress;
   @override
   State<DesktopClipPage> createState() => _DesktopClipPageState();
 }
@@ -160,8 +162,13 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
   Future<void> _command(String label, String command) => _run(() async {
         final at = _at;
         if (at == null) return;
-        checkedClipReply(await at.send(command));
-        if (mounted) setState(() => _message = '$label：设备已确认。');
+        final reply = checkedClipReply(await at.send(command));
+        final data = reply['data'];
+        if (mounted) {
+          setState(() => _message = data is Map && data['pending'] == true
+              ? '录音请求已接受，等待上传资源释放；请刷新确认实际开始。'
+              : '$label：设备已确认。');
+        }
         await _query();
       });
   Future<void> _disconnect() => _run(() async {
@@ -298,6 +305,7 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
                 child: Text('没有扫描结果时，检查 Clip 是否开机、蓝牙权限是否允许，并断开手机上的设备连接。')),
         ],
         if (_connection != null) ...[
+          ClipUploadPanel(at: _at!, serverAddress: widget.serverAddress),
           const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Text('Clip 录音控制',
@@ -367,6 +375,6 @@ class _DesktopClipPageState extends State<DesktopClipPage> {
         const Text('连接说明', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text(
-            '首次搜索需允许 macOS 蓝牙权限。记住设备只保存本机连接记录，不代表账号绑定；忘记记录不会恢复设备出厂设置。\n设备录音控制与本机麦克风录音相互独立。当前桌面入口支持 BLE 连接和控制，Clip 文件下载、Wi-Fi 同步及 OTA 尚未接入；不会自动删除设备录音。'),
+            '首次搜索需允许 macOS 蓝牙权限。记住设备只保存本机连接记录，不代表账号绑定；忘记记录不会恢复设备出厂设置。\n设备录音控制与本机麦克风录音相互独立。DTLS 固件支持 BLE 配网和自动上传；上传后的设备清理由固件配置决定。服务器文件在“服务器音频”中查看。'),
       ]);
 }

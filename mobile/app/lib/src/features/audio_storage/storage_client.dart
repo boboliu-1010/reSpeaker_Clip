@@ -14,10 +14,18 @@ class StorageException implements Exception {
 class StorageClient {
   final Uri base;
   final String token;
-  final HttpClient _http = HttpClient()
+  HttpClient _http = HttpClient()
     ..connectionTimeout = const Duration(seconds: 15);
   bool _closed = false;
-  StorageClient(String address, this.token) : base = Uri.parse(address) {
+  StorageClient(String address, this.token, {String? caPath})
+      : base = Uri.parse(address) {
+    if (caPath != null && caPath.isNotEmpty) {
+      final context = SecurityContext(withTrustedRoots: true)
+        ..setTrustedCertificatesBytes(File(caPath).readAsBytesSync());
+      _http.close(force: true);
+      _http = HttpClient(context: context)
+        ..connectionTimeout = const Duration(seconds: 15);
+    }
     if (!['http', 'https'].contains(base.scheme) ||
         base.host.isEmpty ||
         base.userInfo.isNotEmpty ||
@@ -30,6 +38,9 @@ class StorageClient {
       throw ArgumentError('访问令牌不能为空');
     }
   }
+  String get accountKey =>
+      sha256.convert(utf8.encode('${base.origin}|$token')).toString();
+
   void close() {
     _closed = true;
     _http.close(force: true);
@@ -42,6 +53,10 @@ class StorageClient {
   Future<HttpClientRequest> _request(String method, String path) async {
     _check();
     final r = await _http.openUrl(method, base.resolve(path));
+    // Retire each response socket. A desktop action may follow a metadata
+    // query long after the server's keep-alive deadline. Reusing that socket
+    // can drop the next request before it receives any response headers.
+    r.persistentConnection = false;
     r.followRedirects = false;
     r.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     return r;
@@ -72,9 +87,20 @@ class StorageClient {
 
   Future<List<Map<String, dynamic>>> list() async {
     final rows = <Map<String, dynamic>>[];
+    var endpoint = '/api/boa/v1/audio-files';
     for (var offset = 0;; offset += 100) {
-      final data =
-          await json('GET', '/api/audio/recordings?offset=$offset&limit=100');
+      Map<String, dynamic> data;
+      try {
+        data = await json('GET', '$endpoint?offset=$offset&limit=100');
+      } on StorageException catch (e) {
+        if (offset != 0 ||
+            e.status != 404 ||
+            endpoint != '/api/boa/v1/audio-files') {
+          rethrow;
+        }
+        endpoint = '/api/audio/recordings';
+        data = await json('GET', '$endpoint?offset=0&limit=100');
+      }
       final page = (data['items'] as List).cast<Map<String, dynamic>>();
       rows.addAll(page);
       if (page.length < 100) return rows;
@@ -112,7 +138,7 @@ class StorageClient {
     _check();
     await cache.create(recursive: true);
     final key = sha256
-        .convert(utf8.encode('${base.origin}|${source.absolute.path}|$sha'))
+        .convert(utf8.encode('$accountKey|${source.absolute.path}|$sha'))
         .toString();
     final stateFile = File('${cache.path}/upload-$key.json');
     Map<String, dynamic>? info;
@@ -229,7 +255,8 @@ class StorageClient {
       'audio/mpeg': 'mp3',
       'audio/ogg': 'ogg',
       'audio/flac': 'flac',
-      'audio/aac': 'aac'
+      'audio/aac': 'aac',
+      'application/octet-stream': 'bin'
     }[item['mime']];
     if (ext == null) throw StorageException('不支持的音频格式');
     await directory.create(recursive: true);
@@ -247,7 +274,10 @@ class StorageClient {
       offset = 0;
     }
     if (offset < size) {
-      final r = await _request('GET', '/api/audio/recordings/$uid/content');
+      final contentPath = item['source'] == 'clip_direct'
+          ? '/api/boa/v1/audio-files/$uid/content'
+          : '/api/audio/recordings/$uid/content';
+      final r = await _request('GET', contentPath);
       // Retire bulk sockets explicitly. Some peers retire a long transfer
       // before the pool observes EOF; reusing it can lose the next POST.
       r.persistentConnection = false;

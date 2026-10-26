@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:record/record.dart';
 import 'backup_queue.dart';
 import 'package:file_picker/file_picker.dart';
@@ -53,6 +54,9 @@ class _DesktopPageState extends State<DesktopPage> {
   String? _recordPath;
   String _endpoint = '';
   String _connectedToken = '';
+  String _caPath = '';
+  String _connectedCaPath = '';
+  String get _backupScope => '$_endpoint#account=${_client?.accountKey ?? ''}';
   late final AppLifecycleListener _lifecycle;
   LocalLibrary? _library;
   Directory? _root;
@@ -106,6 +110,7 @@ class _DesktopPageState extends State<DesktopPage> {
         final config = await _serverConfig!.read();
         _address.text = config['address'] ?? _address.text;
         _token.text = config['token'] ?? '';
+        _caPath = config['caPath'] ?? '';
       } catch (_) {
         _status = '本地服务配置读取失败，请重新填写；音频文件不受影响。';
       }
@@ -123,12 +128,17 @@ class _DesktopPageState extends State<DesktopPage> {
     });
     try {
       await action();
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Boa desktop operation failed: ${e.runtimeType}\n$stack');
       _status = e is StorageException
           ? e.message
-          : e is FormatException
-              ? e.message
-              : '操作未完成，请检查网络、文件权限或音频格式。';
+          : e is HandshakeException
+              ? 'TLS 验证失败，请检查证书、服务地址和有效期。'
+              : e is HttpException || e is SocketException
+                  ? '网络连接中断，请重试；未完成下载可继续续传。'
+                  : e is FormatException
+                      ? e.message
+                      : '操作未完成，请检查网络、文件权限或音频格式。';
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -141,14 +151,17 @@ class _DesktopPageState extends State<DesktopPage> {
   Future<void> _connect() => _work(() async {
         _client?.close();
         _client = null;
-        final candidate =
-            StorageClient(_address.text.trim(), _token.text.trim());
+        _remote = [];
+        final candidate = StorageClient(
+            _address.text.trim(), _token.text.trim(),
+            caPath: _caPath);
         try {
           final rows = await candidate.list();
           _client = candidate;
           _remote = rows;
           _endpoint = _address.text.trim();
           _connectedToken = _token.text.trim();
+          _connectedCaPath = _caPath;
         } catch (_) {
           candidate.close();
           rethrow;
@@ -156,7 +169,8 @@ class _DesktopPageState extends State<DesktopPage> {
         await _enqueueAll();
         _status = '已连接服务器 · 自动备份${_autoBackup ? '已开启' : '已关闭'}';
         try {
-          await _serverConfig!.save(_address.text.trim(), _token.text.trim());
+          await _serverConfig!
+              .save(_address.text.trim(), _token.text.trim(), caPath: _caPath);
         } catch (_) {
           _status = '已连接；本地配置保存失败，本次配置仅在内存中使用。';
         }
@@ -183,9 +197,9 @@ class _DesktopPageState extends State<DesktopPage> {
       final hash = audio.file.uri.pathSegments.last.split('.').first;
       if (_remote
           .any((row) => row['sha256'] == hash && row['size'] == audio.bytes)) {
-        await _queue!.markBackedUp(audio, _endpoint);
+        await _queue!.markBackedUp(audio, _backupScope);
       } else {
-        await _queue!.enqueue(audio, _endpoint, resetComplete: true);
+        await _queue!.enqueue(audio, _backupScope, resetComplete: true);
       }
     }
     unawaited(_pump());
@@ -199,7 +213,9 @@ class _DesktopPageState extends State<DesktopPage> {
         !mounted) {
       return;
     }
-    final endpoint = _endpoint;
+    final endpoint = _backupScope;
+    final address = _endpoint;
+    final caPath = _connectedCaPath;
     final token = _connectedToken;
     try {
       await _queue!.drain(
@@ -207,7 +223,7 @@ class _DesktopPageState extends State<DesktopPage> {
             if (destination != endpoint) {
               throw const FormatException('请连接原备份服务器');
             }
-            final client = StorageClient(destination, token);
+            final client = StorageClient(address, token, caPath: caPath);
             try {
               final uploaded = await client.upload(
                   audio.file, Directory('${_root!.path}/sessions'),
@@ -215,7 +231,7 @@ class _DesktopPageState extends State<DesktopPage> {
                 _queue!.setProgress(audio, destination, value);
                 if (mounted) setState(() {});
               });
-              if (mounted && _endpoint == destination) {
+              if (mounted && _backupScope == destination) {
                 setState(() {
                   _remote.removeWhere((r) => r['id'] == uploaded['id']);
                   _remote.add(uploaded);
@@ -226,7 +242,7 @@ class _DesktopPageState extends State<DesktopPage> {
             }
           },
           endpoint: endpoint,
-          allowed: () => mounted && _endpoint == endpoint,
+          allowed: () => mounted && _backupScope == endpoint,
           automaticAllowed: () => _autoBackup,
           changed: () {
             if (mounted) setState(() {});
@@ -242,10 +258,10 @@ class _DesktopPageState extends State<DesktopPage> {
         final hash = audio.file.uri.pathSegments.last.split('.').first;
         if (_remote
             .any((r) => r['sha256'] == hash && r['size'] == audio.bytes)) {
-          await _queue!.markBackedUp(audio, _endpoint);
+          await _queue!.markBackedUp(audio, _backupScope);
           _status = '服务器已有相同音频，无需重复上传';
         } else {
-          await _queue!.requestManual(audio, _endpoint);
+          await _queue!.requestManual(audio, _backupScope);
           _status = '已加入手动上传任务';
           unawaited(_pump());
         }
@@ -406,13 +422,31 @@ class _DesktopPageState extends State<DesktopPage> {
   }
 
   Future<void> _download(Map<String, dynamic> row) => _work(() async {
+        String? rawTarget;
+        if (row['source'] == 'clip_direct') {
+          rawTarget = await FilePicker.platform.saveFile(
+              dialogTitle: '保存 Clip 原始录音', fileName: row['filename'] as String);
+          if (rawTarget == null) return;
+        }
         _status = '正在下载 ${row['filename']}';
         final downloaded = await _client!.download(
-            row, Directory('${_root!.path}/downloads'),
+            row, Directory('${_root!.path}/downloads/${_client!.accountKey}'),
             progress: _update);
+        if (rawTarget != null) {
+          final target = File(rawTarget);
+          if (target.absolute.path.startsWith('${_root!.absolute.path}/')) {
+            throw const FormatException('请选择应用数据目录之外的位置');
+          }
+          await downloaded.copy(target.path);
+          if (await StorageClient.hash(target) != row['sha256']) {
+            throw const FormatException('导出校验失败，请重试');
+          }
+          _status = 'Clip 原始录音已保存（需转换后播放）';
+          return;
+        }
         final imported = await _library!.importFile(downloaded,
             name: row['filename'] as String, source: 'download');
-        await _queue?.markBackedUp(imported, _endpoint);
+        await _queue?.markBackedUp(imported, _backupScope);
         _local = await _library!.list();
         // Only the duplicate staging copy is removed after verified local import.
         await downloaded.delete();
@@ -491,7 +525,7 @@ class _DesktopPageState extends State<DesktopPage> {
                   title: Text(row.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(
-                      '${localPresence(row, _remote, connected: _client != null)} · ${_size(row.bytes)} · 入库 ${audioTime(row.addedAt)}\n ${_endpoint.isEmpty ? '待配置备份' : _queue?.status(row, _endpoint) ?? '待备份'}'),
+                      '${localPresence(row, _remote, connected: _client != null)} · ${_size(row.bytes)} · 入库 ${audioTime(row.addedAt)}\n ${_endpoint.isEmpty ? '待配置备份' : _queue?.status(row, _backupScope) ?? '待备份'}'),
                   onTap: () => showAudioDetails(context, row,
                       presence: localPresence(row, _remote,
                           connected: _client != null)),
@@ -546,7 +580,7 @@ class _DesktopPageState extends State<DesktopPage> {
                 title: Text(row['filename'] as String,
                     maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(
-                    '${remotePresence(row, _local)} · ${_size(row['size'] as int)}\n上传 ${audioTime(remoteTime(row))}'),
+                    '${row['source'] == 'clip_direct' ? 'Clip · 原始录音' : 'App 上传'} · ${remotePresence(row, _local)} · ${_size(row['size'] as int)}\n上传 ${audioTime(remoteTime(row))}'),
                 trailing: IconButton(
                     tooltip: '下载到本地',
                     onPressed: _busy ? null : () => _download(row),
@@ -660,14 +694,15 @@ class _DesktopPageState extends State<DesktopPage> {
                         TextButton(
                             onPressed: _busy ||
                                     _client == null ||
-                                    job.endpoint != _endpoint ||
+                                    job.endpoint != _backupScope ||
                                     job.state == 'uploading'
                                 ? null
                                 : () => _upload(job.audio),
                             child: Text(
                                 job.state == 'complete' ? '检查副本' : '上传 / 重试'))
                       ]),
-                      Text('${job.manual ? '手动' : '自动'} · ${job.endpoint}',
+                      Text(
+                          '${job.manual ? '手动' : '自动'} · ${job.endpoint.split('#').first}',
                           style: const TextStyle(color: Color(0xff667085))),
                       if (job.state == 'uploading') ...[
                         const SizedBox(height: 8),
@@ -685,7 +720,7 @@ class _DesktopPageState extends State<DesktopPage> {
     ]);
   }
 
-  String _jobState(BackupJob job) => job.endpoint != _endpoint &&
+  String _jobState(BackupJob job) => job.endpoint != _backupScope &&
           job.state != 'complete' &&
           job.state != 'uploading'
       ? '等待连接原服务器'
@@ -693,12 +728,35 @@ class _DesktopPageState extends State<DesktopPage> {
           'complete' => '已备份',
           'uploading' => '上传中',
           'failed' => job.attempts >= 3 ? '失败 · 等待手动重试' : '失败 · 稍后重试',
-          _ => job.endpoint != _endpoint
+          _ => job.endpoint != _backupScope
               ? '等待连接原服务器'
               : !_autoBackup && !job.manual
                   ? '自动任务已暂停'
                   : '等待上传',
         };
+
+  Future<void> _importCa() => _work(() async {
+        final selection = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['pem', 'crt'],
+            withData: false);
+        final source = selection?.files.single.path;
+        if (source == null) return;
+        final file = File(source);
+        if (await file.length() > 256 * 1024) {
+          throw const FormatException('证书文件过大');
+        }
+        final bytes = await file.readAsBytes();
+        SecurityContext(withTrustedRoots: true)
+            .setTrustedCertificatesBytes(bytes);
+        final directory = Directory('${_root!.path}/credentials');
+        await directory.create(recursive: true);
+        final target =
+            File('${directory.path}/ca-${sha256.convert(bytes)}.pem');
+        await target.writeAsBytes(bytes, flush: true);
+        _caPath = target.path;
+        _status = '证书已导入，点击“连接并保存”生效。';
+      });
 
   Widget _settings() => ListView(children: [
         Text('录音输入', style: Theme.of(context).textTheme.titleLarge),
@@ -754,6 +812,21 @@ class _DesktopPageState extends State<DesktopPage> {
             obscureText: true,
             decoration: const InputDecoration(
                 labelText: '访问令牌', helperText: '保存在 App 沙箱文件中，不加密，仅当前用户可读')),
+        const SizedBox(height: 16),
+        Text(_caPath.isEmpty ? '证书：系统信任' : '证书：系统信任 + 已导入的开发证书'),
+        Wrap(spacing: 12, children: [
+          TextButton.icon(
+              onPressed: _busy || (_queue?.running ?? false) ? null : _importCa,
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('导入 CA / 开发证书')),
+          if (_caPath.isNotEmpty)
+            TextButton(
+                onPressed: _busy || (_queue?.running ?? false)
+                    ? null
+                    : () => setState(() => _caPath = ''),
+                child: const Text('恢复系统信任')),
+        ]),
+        const Text('仅导入你确认过的 PEM 证书；导入后重新连接。仍会验证证书和主机名。'),
         const SizedBox(height: 20),
         Align(
             alignment: Alignment.centerLeft,
@@ -766,7 +839,7 @@ class _DesktopPageState extends State<DesktopPage> {
         const Text('当前版本', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text(
-            'Mac 音频工作台 · Beta 1.0.1-beta.3\n支持本地导入、播放、HTTP 备份与下载。\n支持麦克风录音和自动备份；Clip 蓝牙连接及控制见“Clip 设备”；模型处理尚未接入。'),
+            'Mac 音频工作台 · Beta 1.0.1-beta.4\n支持本地导入、播放、HTTP 备份与下载。\n支持麦克风录音和自动备份；Clip 配网、上传管理和录音控制见“Clip 设备”。'),
       ]);
 
   Widget _playbar() => Container(
@@ -993,7 +1066,8 @@ class _DesktopPageState extends State<DesktopPage> {
                                 _ => _files()
                               },
                               _clipOpened
-                                  ? const DesktopClipPage()
+                                  ? DesktopClipPage(
+                                      serverAddress: _address.text.trim())
                                   : const SizedBox.shrink(),
                             ])),
                         const SizedBox(height: 16),

@@ -5,6 +5,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:respeaker_app/src/features/audio_storage/storage_client.dart';
 
 void main() {
+  test('a retired metadata connection cannot break a later download', () async {
+    final bytes = [1, 2, 3, 4];
+    final hash = sha256.convert(bytes).toString();
+    final root = await Directory.systemTemp.createTemp('boa-metadata-retire');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    int? metadataPort;
+    server.listen((request) async {
+      if (request.uri.path == '/metadata') {
+        metadataPort = request.connectionInfo!.remotePort;
+        request.response.write('{}');
+        await request.response.close();
+      } else if (request.connectionInfo!.remotePort == metadataPort) {
+        final socket = await request.response.detachSocket(writeHeaders: false);
+        socket.destroy();
+      } else {
+        request.response.headers.set('etag', '"$hash"');
+        request.response.add(bytes);
+        await request.response.close();
+      }
+    });
+    final client = StorageClient('http://127.0.0.1:${server.port}', 'test');
+    try {
+      await client.json('GET', '/metadata');
+      final file = await client.download({
+        'id': 'd' * 32,
+        'size': bytes.length,
+        'sha256': hash,
+        'mime': 'audio/wav'
+      }, root);
+      expect(await file.readAsBytes(), bytes);
+    } finally {
+      client.close();
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
+
   test('a retired bulk connection cannot break the next upload request',
       () async {
     final bytes = List<int>.generate(20000, (i) => i % 251);

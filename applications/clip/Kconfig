@@ -535,22 +535,33 @@ config CLIP_BATTERY_WIFI_TX_LOAD_MA
 	  CLIP_BATTERY_WIFI_AP_LOAD_MA during an active transfer.
 
 config CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA
-	int "Unseen Station radio current while no upload job runs (mA; 0=unknown)"
+	int "Estimated unseen Station current without an upload job (mA; 0=unknown)"
 	range 0 500
-	default 0
+	default 50
 	help
-	  Battery-rail current not covered by PMIC IBAT. Requires Station-specific
-	  calibration; the AP defaults are not Station measurements. Zero leaves
-	  the compensation unknown, not a claim that WiFi draws no current.
+	  Initial uncalibrated estimate for current not covered by PMIC IBAT:
+	  round the nRF7002 2.4 GHz receive/listen typical current, 49.6 mA,
+	  to 50 mA. Datasheet conditions are 3.6 V and 25 C. This assumes an
+	  awake radio, not DTIM/TWT sleep, and does not measure actual duty cycle
+	  or compensate for board supply-voltage differences. It may overestimate
+	  a power-saving Station. Applies only while the Station interface is up.
+	  Calibrate on the battery rail; zero explicitly leaves the load unknown.
 
 config CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA
-	int "Unseen Station radio current during upload/check jobs (mA; 0=unknown)"
+	int "Estimated unseen Station current during upload/check jobs (mA; 0=unknown)"
 	range 0 500
-	default 0
+	default 78
 	help
-	  Extra radio current during association, TLS and upload while the Station
-	  interface is up. A configured value is an estimate until independently
-	  calibrated on the battery rail. PMIC current must not be counted twice.
+	  Initial uncalibrated estimate: 20 percent TX at 191 mA plus 80 percent
+	  receive/listen at 49.6 mA = 77.88 mA, rounded to 78 mA. The TX reference
+	  is the nRF7002 QFN 2.4 GHz MCS7 maximum-output-power typical current;
+	  datasheet conditions are 3.6 V and 25 C. The 20/80 duty split is assumed,
+	  not measured, and sleep, transmit-power and voltage variations are not
+	  modeled. Applies throughout an upload/check job while the Station
+	  interface is up, including association, TLS and between-file waits.
+	  This replaces the idle estimate; the two values must not be added.
+	  Calibrate the missing battery-rail current without double-counting PMIC
+	  current; zero explicitly leaves the load unknown.
 
 config CLIP_BATTERY_IDLE_CURRENT_UA
 	int "Average battery current while idle, fed to the fuel gauge (uA)"

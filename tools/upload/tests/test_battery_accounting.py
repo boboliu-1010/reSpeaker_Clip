@@ -1,6 +1,7 @@
 """Actual battery policy and JSON: distinguish Station work from idle and expose unknown load."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -31,7 +32,11 @@ static bool wifi_ap_is_running(void){return ap;}
 static bool transfer_is_active(void){return transfer;}
 static bool audio_is_recording(void){return audio;}
 '''
-        code+=f'#define CONFIG_CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA {30 if configured else 0}\n#define CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA {90 if configured else 0}\n'
+        config=(ROOT/'applications/clip/Kconfig').read_text()
+        def station_default(mode):
+            section=config.split(f'config CLIP_BATTERY_WIFI_STA_{mode}_LOAD_MA\n',1)[1].split('\nconfig ',1)[0]
+            return int(re.search(r'^\s*default (\d+)$',section,re.M).group(1))
+        code+=f'#define CONFIG_CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA {station_default("IDLE") if configured else 0}\n#define CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA {station_default("ACTIVE") if configured else 0}\n'
         if station:
             code+='''
 #define CONFIG_CLIP_UPLOAD 1
@@ -59,7 +64,11 @@ int main(void){
  assert(l.wifi_ma==CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA);
  assert(l.wifi_unmodeled==(CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA==0));
  assert(fabsf(battery_model_current(-.025f,l)-(.025f+CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA/1000.f))<.000001f);
+ /* Wi-Fi compensation reduces net charging current too; do not flip its sign. */
+ l=battery_load_snapshot(true);
+ assert(fabsf(battery_model_current(.1f,l)-(-.1f+CONFIG_CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA/1000.f))<.000001f);
  job=false;l=battery_load_snapshot(false);assert(l.active&&l.wifi_ma==CONFIG_CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA);
+ assert(fabsf(battery_model_current(-.025f,l)-(.025f+CONFIG_CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA/1000.f))<.000001f);
  up=false;l=battery_load_snapshot(false);assert(!l.active&&!l.wifi_unmodeled);
 '''
         code+='''

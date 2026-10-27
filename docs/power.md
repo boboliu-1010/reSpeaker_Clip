@@ -117,13 +117,35 @@ documented by that upstream change; it has not been independently verified here
 against the schematic or a battery-rail measurement.
 
 Station-specific `CLIP_BATTERY_WIFI_STA_IDLE_LOAD_MA` and
-`CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA` default to **0 (unknown)**. Zero is not a
-physical zero-current claim. PMIC current still feeds the gauge during uploads,
-but the radio load remains incomplete until a Station-specific estimate is
-provided. A nonzero setting is still an estimate, not automatic calibration.
-The active value applies to an up interface during association/check/upload
-jobs; it is an average, not a per-packet measurement. AP values are not silently
-reused for Station. A physically calibrated whole-battery energy result remains
+`CLIP_BATTERY_WIFI_STA_ACTIVE_LOAD_MA` now default to **50 mA** and **78 mA**
+respectively. These are initial **uncalibrated estimates**, not Station
+measurements or a fixed AP-to-Station conversion ratio.
+
+The [nRF7002 electrical specification](https://docs.nordicsemi.com/r/bundle/ps_nrf7002/page/chapters/elspec/doc/electrical_specification.html)
+lists a typical 2.4 GHz receive/listen current of 49.6 mA and, for the QFN package
+at MCS7 and maximum output power, a typical transmit current of 191 mA. The
+reference supply is 3.6 V at 25 C. The initial model assumes:
+
+- Station interface up, no upload/check job: awake receive/listen reference,
+  `round(49.6) = 50 mA`.
+- Station interface up during an upload/check job: assumed 20% transmit and
+  80% receive/listen, `round(0.2 * 191 + 0.8 * 49.6) = 78 mA`.
+- Interface down, including file preparation before radio startup: no Wi-Fi
+  compensation. Existing idle/PMIC accounting still applies.
+
+The 78 mA active estimate replaces 50 mA; they are never added together.
+Existing PMIC current is added separately with its charge/discharge sign.
+The active value applies throughout association, DHCP, TLS, DATA and
+between-file waits while the interface is up; it is not live packet accounting.
+The 20/80 split, output power and time spent asleep have not been measured.
+The current firmware retains Station power-saving support, so this awake-radio
+model may overestimate consumption when the radio sleeps. Board supply-voltage
+differences and the actual unmeasured supply branch still need calibration.
+
+Setting either parameter to zero explicitly leaves that state's compensation
+unknown, not physically zero. AP defaults remain separate. `wifi_unmodeled:false`
+only means an estimate is present (or the radio is off); `energy_calibrated`
+remains false. A physically calibrated whole-battery energy result remains
 outside what these software changes alone can establish.
 
 Polls are queued on upload/check BEGIN and END, and run every five seconds while

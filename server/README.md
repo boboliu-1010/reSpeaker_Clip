@@ -32,9 +32,9 @@ python3 -m venv /path/to/receiver-venv
 ```sh
 python3 -m server.dtls_upload_server --help
 python3 -m server.dtls_upload_server \
-  --root /home/roger/clip-receiver \
-  --directory /home/roger/clip-receiver/experiments/dtls-upload-v1/data \
-  --identities /home/roger/clip-receiver/experiments/dtls-upload-v1/private/identities.json \
+  --root /srv/clip-receiver \
+  --directory /srv/clip-receiver/data \
+  --identities /srv/clip-receiver/private/identities.json \
   --port 9527
 ```
 
@@ -46,17 +46,12 @@ python3 -m server.dtls_upload_server \
 数据目录应仅供一个接收进程使用。迁移代码目录时保留原数据、检查点、设备令牌及
 证书；本次源码整理没有更换协议、证书或数据格式。
 
-## 当前部署与迁移
+## 部署与迁移
 
-当前运行实例仍使用迁移前部署的文件布局：
+上述路径仅为通用示例。实际服务器地址、SSH 账户、部署目录和服务名维护在本地
+环境记录中，不写入源码仓库。
 
-```text
-roger@100.58.19.213
-/home/roger/clip-receiver/experiments/dtls-upload-v1/app/dtls_upload_server.py
-用户服务：clip-dtls-upload-v1.service
-```
-
-本次仓库目录调整不自动替换运行实例。后续部署时应将整个 `server/` 包复制到部署
+仓库目录调整不自动替换运行实例。从旧的单文件部署迁移时，应将整个 `server/` 包复制到部署
 工作目录，例如 `<deployment>/server/`，并从 `<deployment>` 使用
 `python3 -u -m server.dtls_upload_server` 启动。服务的证书、令牌和数据参数保持原值。
 

@@ -19,6 +19,9 @@ Makefile
 .west/
 # Misc
 tools/upload/.local/
+tools/flash_maintenance/.local/
+tools/flash_maintenance/dist/
+tools/flash_maintenance/*.spec
 *.swp
 *.swo
 *.swn

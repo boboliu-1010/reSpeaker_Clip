@@ -26,13 +26,24 @@ def sha(data):
 def private_write(path, data):
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(data)
+        out.flush()
+        os.fsync(out.fileno())
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 class Device:
     def __init__(self, port):
         import serial
         self.serial = serial.Serial(port, 115200, timeout=10, write_timeout=10, exclusive=True)
-        self.info = self.identify()
+        try:
+            self.info = self.identify()
+        except Exception:
+            self.serial.close()
+            raise
 
     def close(self):
         self.serial.close()

@@ -80,29 +80,33 @@ def migrate(data):
     return image, before
 
 
+def prepare(backup_dir, patch_path, output_dir):
+    manifest, original = load_backup(backup_dir)
+    patch = patch_path.read_bytes()
+    if len(patch) != 87046 or sha(patch) != PATCH_SHA256:
+        raise ValueError("Patch is not the validated SDK nrf70.bin")
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+    os.chmod(output_dir, 0o700)
+    image, entries = migrate(original)
+    combined = image + patch + b"\xff"*(0x20000-len(patch))
+    private_write(output_dir/"migrated.bin", combined)
+    # Inventory contains no file contents, but attributes can be sensitive.
+    report = {"device": manifest["device"], "before_sha256": sha(original),
+              "after_sha256": sha(combined), "old_blocks": 109, "new_blocks": 107,
+              "disk_version": "2.1", "inventory_equal_after_remount": True,
+              "patch_sha256": sha(patch), "patch_offset": 0x7e0000, "entries": entries}
+    private_write(output_dir/"migration.json", (json.dumps(report, indent=2)+"\n").encode())
+    print(json.dumps({"migration_verified": True, "entries": len(entries),
+                      "old_blocks": 109, "new_blocks": 107, "patch_sha256": sha(patch)}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backup", type=Path, required=True)
     parser.add_argument("--patch", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    manifest, original = load_backup(args.backup)
-    patch = args.patch.read_bytes()
-    if len(patch) != 87046 or sha(patch) != PATCH_SHA256:
-        raise ValueError("Patch is not the validated SDK nrf70.bin")
-    args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    os.chmod(args.output, 0o700)
-    image, entries = migrate(original)
-    combined = image + patch + b"\xff"*(0x20000-len(patch))
-    private_write(args.output/"migrated.bin", combined)
-    # Inventory contains no file contents, but attributes can be sensitive.
-    report = {"device": manifest["device"], "before_sha256": sha(original),
-              "after_sha256": sha(combined), "old_blocks": 109, "new_blocks": 107,
-              "disk_version": "2.1", "inventory_equal_after_remount": True,
-              "patch_sha256": sha(patch), "patch_offset": 0x7e0000, "entries": entries}
-    private_write(args.output/"migration.json", (json.dumps(report, indent=2)+"\n").encode())
-    print(json.dumps({"migration_verified": True, "entries": len(entries),
-                      "old_blocks": 109, "new_blocks": 107, "patch_sha256": sha(patch)}))
+    prepare(args.backup, args.patch, args.output)
 
 
 if __name__ == "__main__":

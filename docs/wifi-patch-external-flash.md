@@ -35,6 +35,10 @@ SD上的录音不在此Flash。LittleFS保存设备settings，包括配网、接
 录音固件。此页不是直接执行擦写的命令清单，首次迁移需按设备实际备份和恢复方案执行。
 回刷旧应用不会自动恢复旧文件系统布局。
 
+Mac 端完整流程可由[一体化升级工具](../tools/flash_maintenance/README.md#mac-一体化升级工具)
+串联。离线交付包内置运行环境及 SMP 客户端，用户无需安装开发工具；当前为开发验证
+阶段，未知原厂版本拒绝，完整实机迁移和正式 Mac 签名／公证尚未完成。
+
 ## 构建校验
 
 使用 [`scripts/verify_external_wifi_patch.py`](../scripts/verify_external_wifi_patch.py) 比较基线

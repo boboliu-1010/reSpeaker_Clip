@@ -170,7 +170,8 @@ void ble_adv_restart_fast(void);
  * @brief Refresh BLE inactivity timeout
  *
  * Resets the 5-minute inactivity disconnect timer.
- * Called on AT command reception.
+ * Called on AT/file traffic and accepted SMP OTA start/chunks/completion.
+ * Display/progress polling does not count as link activity.
  */
 void ble_activity_refresh(void);
 

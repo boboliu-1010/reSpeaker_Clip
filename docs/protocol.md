@@ -2989,6 +2989,12 @@ server upload, a pending recording or a reserved device operation returns
 are blocked. Completion retains the reservation while awaiting reboot; error,
 cancellation or BLE disconnect releases it. A client rejected as busy must retry
 when idle; starting OTA does not cancel a server upload automatically.
+Accepted OTA start, valid chunk reception and completion refresh the BLE
+five-minute inactivity timer. Display/progress polling alone does not refresh it.
+Continuous OTA traffic can therefore exceed five minutes; five minutes without
+recognized activity still disconnects and releases the OTA reservation. A queued
+timeout rechecks the last activity and retains a reference to the connection it
+decided to close; an old connection's cleanup cannot cancel the new peer's timer.
 BLE AT control is separate from the SMP firmware-transfer service. USB serial
 recovery remains available. See the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
 

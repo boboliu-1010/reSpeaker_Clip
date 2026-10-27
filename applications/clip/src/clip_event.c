@@ -226,6 +226,16 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
         }
     }
 #endif
+    /* SMP uses a different characteristic from AT/file transfer; its accepted
+     * traffic must refresh the same idle timer. Progress polling is not traffic. */
+    if (prev_status == MGMT_CB_OK &&
+        (event == MGMT_EVT_OP_IMG_MGMT_DFU_STARTED ||
+         event == MGMT_EVT_OP_IMG_MGMT_DFU_PENDING ||
+         (event == MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK && data &&
+          data_size >= sizeof(struct img_mgmt_upload_check) &&
+          ((struct img_mgmt_upload_check *)data)->req))) {
+        ble_activity_refresh();
+    }
     if (event == MGMT_EVT_OP_IMG_MGMT_DFU_STARTED) {
         LOG_INF("OTA started");
         k_mutex_lock(&ota_mutex, K_FOREVER);

@@ -96,6 +96,11 @@ static const struct bt_le_adv_param adv_param_slow =
 
 static struct k_work_delayable adv_timeout_work;
 static struct k_work_delayable inactivity_work;
+static struct k_spinlock inactivity_lock;
+/* Borrowed from the connection callback; cleared before ble_ctx drops its ref. */
+static struct bt_conn *inactivity_conn;
+static int64_t last_activity_ms;
+static bool inactivity_closing;
 
 /* Work for security timeout */
 static struct k_work_delayable security_timeout_work;
@@ -351,14 +356,59 @@ static void adv_timeout_handler(struct k_work *work)
 	}
 }
 
-/* BLE inactivity timeout handler - disconnect after 5 minutes idle */
+static void inactivity_start(struct bt_conn *conn)
+{
+    k_spinlock_key_t key = k_spin_lock(&inactivity_lock);
+    inactivity_conn = conn;
+    inactivity_closing = false;
+    last_activity_ms = k_uptime_get();
+    k_work_reschedule(&inactivity_work, K_MSEC(BLE_INACTIVITY_TIMEOUT_MS));
+    k_spin_unlock(&inactivity_lock, key);
+}
+
+static void inactivity_stop(struct bt_conn *conn)
+{
+    k_spinlock_key_t key = k_spin_lock(&inactivity_lock);
+    if (inactivity_conn == conn) {
+        inactivity_conn = NULL;
+        inactivity_closing = false;
+        k_work_cancel_delayable(&inactivity_work);
+    }
+    k_spin_unlock(&inactivity_lock, key);
+}
+
+/* A previously queued timeout must recheck activity before committing a close.
+ * The lock orders refresh vs close; Bluetooth calls run outside the lock. */
 static void inactivity_timeout_handler(struct k_work *work)
 {
-	if (ble_ctx.conn) {
-		LOG_INF("BLE inactivity, disconnecting");
-		bt_conn_disconnect(ble_ctx.conn,
-				   BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-	}
+    ARG_UNUSED(work);
+    struct bt_conn *conn = NULL;
+    k_spinlock_key_t key = k_spin_lock(&inactivity_lock);
+    if (inactivity_conn && !inactivity_closing) {
+        int64_t remaining = BLE_INACTIVITY_TIMEOUT_MS - (k_uptime_get() - last_activity_ms);
+        if (remaining > 0) {
+            k_work_reschedule(&inactivity_work, K_MSEC(remaining));
+        } else {
+            inactivity_closing = true;
+            conn = bt_conn_ref(inactivity_conn);
+        }
+    }
+    k_spin_unlock(&inactivity_lock, key);
+    if (conn) {
+        LOG_INF("BLE inactivity, disconnecting");
+        int err = bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+        if (err) {
+            /* A failed close must not permanently disable activity tracking. */
+            key = k_spin_lock(&inactivity_lock);
+            if (inactivity_conn == conn && inactivity_closing) {
+                inactivity_closing = false;
+                last_activity_ms = k_uptime_get();
+                k_work_reschedule(&inactivity_work, K_MSEC(BLE_INACTIVITY_TIMEOUT_MS));
+            }
+            k_spin_unlock(&inactivity_lock, key);
+        }
+        bt_conn_unref(conn);
+    }
 }
 
 /* Advertising restart handler */
@@ -406,6 +456,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
     ble_ctx.conn = bt_conn_ref(conn);
 #endif
     mtu_exchanged = false;
+    inactivity_start(conn);
 
     /* Update transport layer with new connection */
     /* Check if CCC was already written (it might have been written before connection callback) */
@@ -445,14 +496,12 @@ static void connected(struct bt_conn *conn, uint8_t err)
     /* Delay MTU exchange until after security is established */
     k_work_schedule(&mtu_work, K_MSEC(1000));
 
-    /* Start BLE inactivity timeout */
-    k_work_reschedule(&inactivity_work,
-		      K_MSEC(BLE_INACTIVITY_TIMEOUT_MS));
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
     if (ble_ctx.conn == conn) {
+        inactivity_stop(conn);
         char addr[BT_ADDR_LE_STR_LEN];
 
         bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
@@ -473,7 +522,6 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
         /* Cancel security timeout */
         k_work_cancel_delayable(&security_timeout_work);
-        k_work_cancel_delayable(&inactivity_work);
         k_work_cancel_delayable(&adv_timeout_work);
 
         LOG_INF("disc: %s r=0x%02x", addr, reason);
@@ -1095,8 +1143,10 @@ void ble_adv_restart_fast(void)
 
 void ble_activity_refresh(void)
 {
-    if (ble_ctx.conn) {
-	k_work_reschedule(&inactivity_work,
-			  K_MSEC(BLE_INACTIVITY_TIMEOUT_MS));
+    k_spinlock_key_t key = k_spin_lock(&inactivity_lock);
+    if (inactivity_conn && !inactivity_closing) {
+        last_activity_ms = k_uptime_get();
+        k_work_reschedule(&inactivity_work, K_MSEC(BLE_INACTIVITY_TIMEOUT_MS));
     }
+    k_spin_unlock(&inactivity_lock, key);
 }

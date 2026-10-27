@@ -321,6 +321,13 @@ new recording, upload and conflicting operations are blocked. The reservation
 survives completion while awaiting reboot and is released on error, cancellation
 or BLE disconnect. Retry a busy request after the conflicting activity ends.
 
+Accepted OTA start, valid chunks and completion refresh the existing five-minute
+BLE inactivity timer. Progress-display polling does not count as traffic. An
+active transfer can last longer than five minutes; a stalled/idle client can
+still be disconnected. Timeout decisions recheck activity and are scoped to
+the connection being closed. Host tests cover the fake-clock lifecycle; actual
+long-running BLE OTA remains part of device validation below.
+
 Validation boundary: host tests exercise the actual callback and admission code;
 a complete BLE transfer and post-update boot require device validation of the
 new image. An older image on a device retains its previous rejection behavior

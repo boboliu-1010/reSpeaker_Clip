@@ -51,6 +51,7 @@ static unsigned g_ota_chunk_count;
 static size_t g_ota_total_size;
 static bool ota_in_progress, recording, downloading, uploading, pending, connected=true;
 static bool disconnect_after_admit;
+static unsigned activity_refreshes;
 enum {UI_EVENT_OTA_START, UI_EVENT_OTA_DONE};
 static int atomic_get(int *v) {return *v;}
 static void atomic_set(int *v, int n) {*v=n;}
@@ -61,6 +62,7 @@ static bool transfer_is_active(void){return downloading;}
 static bool upload_runtime_active(void){return uploading;}
 static bool upload_runtime_record_pending(void){return pending;}
 static bool ble_is_connected(void){return connected;}
+static void ble_activity_refresh(void){activity_refreshes++;}
 static void display_post_event(int e){(void)e;posts++;}
 static int clip_event_get_state(void){return g_state;}
 static void k_mutex_lock(int *p,int timeout){(void)p;(void)timeout;}
@@ -117,8 +119,10 @@ int main(void) {
  queue_failures=1;
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==10);
  assert(g_state==CLIP_STATE_IDLE && admission==AVAILABLE);
+ assert(activity_refreshes==0);
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==0);
  assert(g_state==CLIP_STATE_OTA && admission==OTA && ota_in_progress);
+ assert(activity_refreshes==1);
  assert(!upload_command_claim_upload());
  assert(upload_command_begin("START",AT_CMD_TYPE_EXEC,false,false,false,false)==-EBUSY);
  assert(upload_command_begin("FORMAT",AT_CMD_TYPE_EXEC,false,false,false,false)==-EBUSY);
@@ -130,15 +134,19 @@ int main(void) {
  struct request req={.off=1024,.size=4096};struct action action={.size=4096};
  struct img_mgmt_upload_check check={&req,&action};
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK,&check,sizeof(check))==0);
+ assert(activity_refreshes==2);
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_PENDING,NULL,0)==0);
+ assert(activity_refreshes==3);
  assert(!ota_in_progress && g_state==CLIP_STATE_OTA && !upload_command_claim_upload());
  queue_failures=1;clip_event_ota_cancel();
  assert(sleeps==1 && g_state==CLIP_STATE_IDLE && admission==AVAILABLE);
  /* Resume without STARTED must reserve before accepting a chunk. */
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK,&check,sizeof(check))==0);
+ assert(activity_refreshes==4);
  assert(g_state==CLIP_STATE_OTA && ota_in_progress);
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STOPPED,NULL,0)==0);
  assert(g_state==CLIP_STATE_IDLE && admission==AVAILABLE && !ota_in_progress);
+ assert(activity_refreshes==4);
  assert(upload_command_claim_upload());upload_command_release_upload();
  /* Earlier callback rejection is preserved without acquiring ownership. */
  int32_t rc=42;uint16_t group=1;bool abort=false;

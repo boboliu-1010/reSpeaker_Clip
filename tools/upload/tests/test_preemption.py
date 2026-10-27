@@ -61,6 +61,7 @@ struct clip_event_result_info { enum clip_event_result result; int error_code; }
 struct clip_event_item { enum clip_event event; struct clip_event_result_info *result; int *done_sem; };
 static int active, cancelled, stalled, last_error, bytes_sent, stage, record_pending, record_error, cleanup_error;
 static int confirmed, resume_from, total_bytes;
+static int display_files_total, display_files_done;
 static int state_error, auto_job, auto_paused, activity;
 static int start_job, g_state, clip_ev_msgq, ota_in_progress;
 static bool audio_active, resources_released, inject_start, downloading;

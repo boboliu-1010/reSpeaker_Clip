@@ -24,6 +24,9 @@
 #include "battery.h"
 #include "storage.h"
 #include "haptic.h"
+#ifdef CONFIG_CLIP_UPLOAD
+#include "upload_runtime.h"
+#endif
 
 LOG_MODULE_REGISTER(display, CONFIG_CLIP_LOG_LEVEL);
 
@@ -149,6 +152,7 @@ static bool g_has_untransferred = false;
 static bool g_dot_animation_played = false;
 static int64_t g_rec_wave_start_ms = 0;
 static int64_t g_status_bar_start_ms = 0;
+static bool g_upload_visible = false;
 
 /* OTA progress (0-100) */
 static uint8_t g_ota_percent = 0;
@@ -1051,6 +1055,7 @@ static void set_ui_state(enum ui_state new_state)
 		k_work_cancel_delayable(&display_anim_work);
 
 		g_ui_state = new_state;
+		g_upload_visible = false;
 
 		/* Reset animation counters */
 		g_mark_frame = 0;
@@ -1068,9 +1073,29 @@ static void set_ui_state(enum ui_state new_state)
 	}
 }
 
+static void show_upload_progress(void)
+{
+#ifdef CONFIG_CLIP_UPLOAD
+	/* A queued start may arrive after recording/OTA has taken the foreground. */
+	if (g_recording || g_ota_active || upload_runtime_display_percent() < 0 ||
+	    (g_ui_state != UI_STATE_OFF && g_ui_state != UI_STATE_STATUS_BAR &&
+	     g_ui_state != UI_STATE_PAIRING_GUIDE)) {
+		return;
+	}
+	k_work_cancel_delayable(&display_timeout_work);
+	set_ui_state(UI_STATE_STATUS_BAR);
+	g_status_bar_start_ms = k_uptime_get();
+	g_upload_visible = true;
+	/* Progress redraws keep the screen on until this job ends. */
+#endif
+}
+
 static void handle_event(enum ui_event event)
 {
 	switch (event) {
+	case UI_EVENT_UPLOAD_START:
+		show_upload_progress();
+		break;
 	case UI_EVENT_REC_START:
 		g_recording = true;
 		/* Set animation type based on mode */
@@ -1179,6 +1204,11 @@ static void handle_event(enum ui_event event)
 		break;
 
 	case UI_EVENT_TIMEOUT:
+		if (g_ui_state == UI_STATE_STATUS_BAR &&
+		    (g_upload_visible || k_uptime_get() - g_status_bar_start_ms < DISPLAY_STATUS_TIMEOUT_MS)) {
+			/* Ignore old timers while uploading and during the restored status interval. */
+			break;
+		}
 		if (g_ui_state == UI_STATE_STATUS_BAR ||
 		    g_ui_state == UI_STATE_USB_CONNECTED ||
 		    g_ui_state == UI_STATE_LOW_BATTERY ||
@@ -1284,6 +1314,55 @@ static void handle_event(enum ui_event event)
 	}
 }
 
+static void render_progress(const char *label, icon_id_t icon, uint8_t percent)
+{
+	clear_screen(display_buffer);
+
+	/* Keep the baseline OTA icon; file upload uses the full width for its title. */
+	const uint8_t *ota_icon = icon == ICON_NONE ? NULL : icon_get_bitmap(icon, NULL, NULL);
+	if (ota_icon) {
+		icon_draw_bitmap(display_buffer, 0, 0, ota_icon, ICON_WIDTH, ICON_HEIGHT);
+	}
+
+	/* The full Uploading... title fits within the 88-pixel display. */
+	int label_y = 6;
+	int label_x = icon == ICON_NONE ? (OLED_WIDTH - (int)strlen(label) * 6) / 2 : 22;
+	draw_string_6x12(display_buffer, label, label_x, label_y);
+
+	/* Progress bar */
+	int bar_x = 10;
+	int bar_y = 26;
+	int bar_w = OLED_WIDTH - 20;
+	int bar_h = 2; /* progress bar height */
+
+	/* Outline */
+	for (int x = bar_x; x < bar_x + bar_w; x++) {
+		set_pixel_direct(display_buffer, x, bar_y);
+		set_pixel_direct(display_buffer, x, bar_y + bar_h);
+	}
+	for (int y = bar_y; y <= bar_y + bar_h; y++) {
+		set_pixel_direct(display_buffer, bar_x, y);
+		set_pixel_direct(display_buffer, bar_x + bar_w - 1, y);
+	}
+
+	/* Fill */
+	int fill_w = ((int)percent * (bar_w - 2)) / 100;
+	for (int x = bar_x + 1; x < bar_x + 1 + fill_w && x < bar_x + bar_w - 1; x++) {
+		for (int y = bar_y + 1; y < bar_y + bar_h; y++) {
+			set_pixel_direct(display_buffer, x, y);
+		}
+	}
+
+	/* Percentage text below bar - draw number and "%" separately for spacing */
+	char pct_str[8];
+	snprintk(pct_str, sizeof(pct_str), "%u", percent);
+	int num_len = (int)strlen(pct_str);
+	int total_w = num_len * 6 + 1 + 6;  /* number chars + 1px gap + "%" */
+	int pct_x = (OLED_WIDTH - total_w) / 2;
+	int end_x = draw_string_6x12(display_buffer, pct_str, pct_x, 38);
+	draw_string_6x12(display_buffer, "%", end_x + 3, 38);
+}
+
 static void render_current_state(void)
 {
 	switch (g_ui_state) {
@@ -1293,10 +1372,28 @@ static void render_current_state(void)
 		break;
 
 	case UI_STATE_STATUS_BAR: /* Status bar */
+#ifdef CONFIG_CLIP_UPLOAD
+	{
+		/* Keep progress visible throughout the job; restart the status timeout on exit. */
+		int percent = !g_recording && !g_ota_active ? upload_runtime_display_percent() : -1;
+		if (percent >= 0) {
+			g_upload_visible = true;
+			render_progress("Uploading...", ICON_NONE, (uint8_t)percent);
+		} else {
+			if (g_upload_visible) {
+				g_upload_visible = false;
+				g_status_bar_start_ms = k_uptime_get();
+				k_work_reschedule(&display_timeout_work, K_MSEC(DISPLAY_STATUS_TIMEOUT_MS));
+			}
+			render_status_bar(display_buffer);
+		}
+	}
+#else
 		render_status_bar(display_buffer);
+#endif
 		flush_display();
 		/* Check 3s timeout - transition to OFF or PAIRING_GUIDE */
-		if (k_uptime_get() - g_status_bar_start_ms >= DISPLAY_STATUS_TIMEOUT_MS) {
+		if (!g_upload_visible && k_uptime_get() - g_status_bar_start_ms >= DISPLAY_STATUS_TIMEOUT_MS) {
 			if (ble_is_bonded()) {
 				set_ui_state(UI_STATE_OFF);
 			} else {
@@ -1415,55 +1512,9 @@ static void render_current_state(void)
 	}
 
 	case UI_STATE_OTA_PROGRESS: /* OTA progress */
-	{
-		clear_screen(display_buffer);
-
-		/* OTA icon in top-left corner */
-		const uint8_t *ota_icon = icon_get_bitmap(ICON_OTA, NULL, NULL);
-		if (ota_icon) {
-			icon_draw_bitmap(display_buffer, 0, 0, ota_icon, ICON_WIDTH, ICON_HEIGHT);
-		}
-
-		/* "OTA" label centered */
-		int label_y = 6;
-		draw_string_6x12(display_buffer, "Updating...", 22, label_y);
-
-		/* Progress bar */
-		int bar_x = 10;
-		int bar_y = 26;
-		int bar_w = OLED_WIDTH - 20;
-		int bar_h = 2; /* progress bar height */
-
-		/* Outline */
-		for (int x = bar_x; x < bar_x + bar_w; x++) {
-			set_pixel_direct(display_buffer, x, bar_y);
-			set_pixel_direct(display_buffer, x, bar_y + bar_h);
-		}
-		for (int y = bar_y; y <= bar_y + bar_h; y++) {
-			set_pixel_direct(display_buffer, bar_x, y);
-			set_pixel_direct(display_buffer, bar_x + bar_w - 1, y);
-		}
-
-		/* Fill */
-		int fill_w = ((int)g_ota_percent * (bar_w - 2)) / 100;
-		for (int x = bar_x + 1; x < bar_x + 1 + fill_w && x < bar_x + bar_w - 1; x++) {
-			for (int y = bar_y + 1; y < bar_y + bar_h; y++) {
-				set_pixel_direct(display_buffer, x, y);
-			}
-		}
-
-		/* Percentage text below bar - draw number and "%" separately for spacing */
-		char pct_str[8];
-		snprintk(pct_str, sizeof(pct_str), "%u", g_ota_percent);
-		int num_len = (int)strlen(pct_str);
-		int total_w = num_len * 6 + 1 + 6;  /* number chars + 1px gap + "%" */
-		int pct_x = (OLED_WIDTH - total_w) / 2;
-		int end_x = draw_string_6x12(display_buffer, pct_str, pct_x, 38);
-		draw_string_6x12(display_buffer, "%", end_x + 3, 38);
-
+		render_progress("Updating...", ICON_OTA, g_ota_percent);
 		flush_display();
 		break;
-	}
 
 	case UI_STATE_ERROR: /* Error display */
 	{

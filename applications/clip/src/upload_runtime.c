@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "upload_runtime.h"
+#include "display.h"
 #include "config.h"
 #include "dtls_upload.h"
 static struct dtls_upload *datagram;
@@ -55,6 +56,7 @@ BUILD_ASSERT(IS_ENABLED(CONFIG_PSA_WANT_ALG_ECDSA) &&
              "The upload server EC certificates require ECDHE-ECDSA support");
 #define MAX_FILE (8U * 1024U * 1024U)
 static atomic_t active, cancelled, stage, last_error, bytes_sent;
+static atomic_t display_files_total, display_files_done;
 static atomic_t confirmed, resume_from, total_bytes;
 static atomic_t state_error;
 static atomic_t stalled;
@@ -137,6 +139,30 @@ enum { IDLE, PREPARING, CONNECTING, TLS, SENDING, VERIFYING, SUCCEEDED, FAILED, 
 static const char *const names[] = {"idle", "preparing", "connecting", "tls", "sending",
     "verifying", "succeeded", "failed", "cancelled"};
 
+int upload_runtime_display_percent(void)
+{
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spinlock_key_t key = k_spin_lock(&app_lock);
+    bool network_check = atomic_get(&app_job_network);
+#else
+    bool network_check = false;
+#endif
+    uint32_t total = atomic_get(&display_files_total);
+    uint32_t done = atomic_get(&display_files_done);
+    int current_stage = atomic_get(&stage);
+    bool visible = atomic_get(&initialized) && atomic_get(&active) && !network_check &&
+        !atomic_get(&cancelled) && total && current_stage >= PREPARING && current_stage <= SUCCEEDED;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+    k_spin_unlock(&app_lock, key);
+#endif
+    if (!visible) { return -1; }
+    if (current_stage == SUCCEEDED) { return 100; }
+    /* A file counts only after its completion state has been saved. Keep 100%
+     * for successful job cleanup, including the final radio shutdown. */
+    if (done >= total) { return 99; }
+    return (int)((uint64_t)done * 100 / total);
+}
+
 #ifdef CONFIG_CLIP_UPLOAD_APP
 void upload_runtime_app_status(struct upload_app_status *out)
 {
@@ -214,7 +240,15 @@ bool upload_runtime_event(enum clip_event event, struct clip_event_result_info *
             transfer_is_active() || !upload_command_claim_upload()) {
             ret = CLIP_EVENT_BUSY;
         } else {
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            k_spinlock_key_t display_key = k_spin_lock(&app_lock);
+#endif
+            atomic_clear(&display_files_total);
+            atomic_clear(&display_files_done);
             atomic_set(&active, 1);
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            k_spin_unlock(&app_lock, display_key);
+#endif
             battery_request_poll();
             /* Initialize in event order. Clearing after BEGIN returns could
              * erase a button cancellation arriving before the worker wakes. */
@@ -415,6 +449,7 @@ struct selection {
     struct candidate first[AUTO_BATCH_FILES], after[AUTO_BATCH_FILES];
     uint8_t destination[32];
     unsigned first_count, after_count, index;
+    uint32_t total_count;
 };
 static struct selection *auto_batch;
 static int compare_key(const char *a, uint32_t an, const char *b, uint32_t bn)
@@ -444,6 +479,7 @@ static int choose_visit(const char *id, uint32_t number, uint32_t size, bool sea
          * Never wrap to the first file when the final batch is drained. */
         if (strcmp(id, measurement_session) ||
             compare_key(id, number, cursor_session, cursor_segment) <= 0) { return 0; }
+        selection->total_count++;
         add_candidate(selection->first, &selection->first_count, id, number);
         add_candidate(selection->after, &selection->after_count, id, number);
         return 0;
@@ -460,6 +496,7 @@ static int choose_visit(const char *id, uint32_t number, uint32_t size, bool sea
         return 0;
 #endif
     }
+    selection->total_count++;
     add_candidate(selection->first, &selection->first_count, id, number);
     if (compare_key(id, number, cursor_session, cursor_segment) > 0) {
         add_candidate(selection->after, &selection->after_count, id, number);
@@ -531,6 +568,9 @@ static int begin_auto(void)
     k_mutex_lock(&control_lock, K_FOREVER);
     scan_error = ret;
     if (!ret && auto_batch->first_count) {
+        /* The existing full scan already visited every eligible file. Retain
+         * this denominator across bounded eight-file refills; no extra scan. */
+        atomic_set(&display_files_total, auto_batch->total_count);
         auto_batch->index = 1;
         select_candidate(&auto_batch->first[0]);
         wifi_diag_reset(); selected = 1;
@@ -919,8 +959,11 @@ static void worker(void *a, void *b, void *c)
         int ret = buffers ? 0 : -ENOMEM;
         if (!ret) {
 #endif
+            if (!atomic_get(&auto_job)) { atomic_set(&display_files_total, 1); }
+            display_post_event(UI_EVENT_UPLOAD_START);
             for (;;) {
                 ret = upload_file();
+                if (!ret) { atomic_inc(&display_files_done); }
                 if (ret || !atomic_get(&auto_job) || check_cancel()) { break; }
                 if (next_auto_file()) { continue; }
                 /* The window bounds RAM, not the connection lifetime. Keep

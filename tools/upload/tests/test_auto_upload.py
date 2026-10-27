@@ -145,6 +145,7 @@ typedef int atomic_val_t;
 static struct upload_config settings={.enabled=1};
 static int initialized=1,auto_paused,activity,observed_activity,auto_job,control_lock,cleanup_error;
 static int scan_error,stage,last_error,scan_failure,metadata_failure,busy,cancel,active;
+static int display_files_total;
 static uint32_t failures,cursor_segment,segment;
 static char cursor_session[15],session[32];
 static int64_t next_auto,deadline,now;
@@ -208,6 +209,7 @@ int main(void){
  busy=1;assert(!begin_auto()&&!active&&!visited);busy=0;
  activity++;assert(!begin_auto()&&next_auto==5000);now=5000;
  assert(begin_auto()&&active&&auto_job&&segment==1&&!strcmp(session,items[0].id));
+ assert(display_files_total==3); /* All pending files, not just the first candidate. */
  schedule_after_job(-EIO);active=0;assert(failures==1&&next_auto==now+20000);
  assert(!begin_auto());now=next_auto;
  assert(begin_auto()&&segment==3);schedule_after_job(-EIO);active=0;assert(failures==2&&next_auto==now+40000);
@@ -219,7 +221,10 @@ int main(void){
  now=next_auto;scan_failure=-ECANCELED;assert(!begin_auto()&&!active&&stage==CANCELLED);scan_failure=0;
  for(unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++)items[i].state=UPLOAD_STORED;
  now=next_auto;assert(!begin_auto()&&!active&&next_auto==now+300000);
- struct selection select={0};memset(select.destination,0x33,32);assert(choose_visit(items[0].id,1,60975,true,&select)==0&&select.first[0].session[0]);
+ struct selection select={0};
+ for(unsigned n=100;n>0;n--)assert(!choose_visit("20261101000000",n,1000,true,&select));
+ assert(select.total_count==100&&select.first_count==8&&select.after_count==8);
+ memset(&select,0,sizeof(select));memset(select.destination,0x33,32);assert(choose_visit(items[0].id,1,60975,true,&select)==0&&select.first[0].session[0]);
  memset(&select,0,sizeof(select));memset(select.destination,0x22,32);assert(choose_visit(items[0].id,1,60974,true,&select)==0&&select.first[0].session[0]);
  memset(&select,0,sizeof(select));
  for(unsigned n=20;n>8;n--)add_candidate(select.first,&select.first_count,items[0].id,n);

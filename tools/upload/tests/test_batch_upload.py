@@ -91,6 +91,10 @@ static int stage,tls_step,bytes_sent,confirmed,resume_from,total_bytes,state_err
 static int cleanup_error,cancelled,stalled,last_error,stall_work,start_job;
 static int active,attempt,connections,disconnects,uploads,wifi_starts,saves,stored,partial;
 static int mode,last_scheduled,ended,auto_job,target=3;
+static int display_files_total,display_files_done;
+enum {UI_EVENT_UPLOAD_START};
+static int upload_notices;
+static void display_post_event(int event){assert(event==UI_EVENT_UPLOAD_START);upload_notices++;}
 static int64_t now,deadline;
 static bool radio;
 static size_t file_length;
@@ -105,10 +109,11 @@ enum {REUSE,LEGACY,DROPPED,PROTOCOL,CANCEL_BETWEEN,CANCEL_PARTIAL,METADATA,CLOSE
 static void atomic_set(int *p,int n){*p=n;}
 static void atomic_clear(int *p){*p=0;}
 static int atomic_get(int *p){return *p;}
+static void atomic_inc(int *p){(*p)++;}
 static int64_t k_uptime_get(void){return now;}
 static int check_cancel(void){return cancelled?-ECANCELED:stalled?-ETIMEDOUT:now>=deadline?-ETIMEDOUT:0;}
 static int k_sem_take(int *p,int t){(void)p;(void)t;if(ended)longjmp(done,1);return 1;}
-static int begin_auto(void){auto_job=active=1;attempt=1;segment=1;return 1;}
+static int begin_auto(void){auto_job=active=1;attempt=1;segment=1;display_files_total=mode==ROLLING?5:3;display_files_done=0;return 1;}
 static bool next_auto_file(void){if(check_cancel()||attempt>=target)return false;segment=++attempt;return true;}
 static int refill_auto_batch(void){
  if(mode==ROLLING&&attempt==3){target=5;return 1;}
@@ -182,6 +187,7 @@ int main(int argc,char **argv){
  assert(!active&&ended&&!file.open&&!transport.live&&!radio&&!buffers);
  if(mode==REUSE||mode==DROPPED||mode==ROLLING){
   assert(stored==(mode==ROLLING?5:3)&&wifi_starts==1&&stage==SUCCEEDED&&!last_scheduled);
+  assert(display_files_done==stored&&display_files_total==stored);
   assert(connections==((mode==REUSE||mode==ROLLING)?1:2));
   assert(uploads==(mode==DROPPED?4:mode==ROLLING?5:3));
  }else if(mode==CANCEL_BETWEEN||mode==CANCEL_PARTIAL){
@@ -189,8 +195,10 @@ int main(int argc,char **argv){
   assert(mode==CANCEL_BETWEEN?stored==1:partial==1);
  }else if(mode==PROTOCOL){
   assert(attempt==2&&uploads==2&&stored==1&&connections==1&&stage==FAILED&&last_scheduled==-EBADMSG);
+  assert(display_files_done==1);
  }else if(mode==METADATA){
   assert(attempt==2&&uploads==1&&stored==1&&cleanup_error==-EIO&&stage==FAILED);
+  assert(display_files_done==1);
  }else if(mode==CLOSE_ERROR){
   assert(attempt==1&&!stored&&cleanup_error==-EIO&&stage==FAILED);
  }else if(mode==RADIO_ERROR){

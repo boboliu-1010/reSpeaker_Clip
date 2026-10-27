@@ -75,6 +75,7 @@ enum ui_event {
 	UI_EVENT_WIFI_BLOCKED,         /**< WiFi active, cannot record */
 	UI_EVENT_USB_BLOCKED,          /**< USB MSC active, cannot record */
 	UI_EVENT_ANIM_TICK,            /**< Animation frame tick (internal) */
+	UI_EVENT_UPLOAD_START,         /**< Show progress throughout a new upload job */
 };
 
 /* =============================================================================

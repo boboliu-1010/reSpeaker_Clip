@@ -6,6 +6,9 @@
 #include "clip_event.h"
 int upload_runtime_register(void);
 bool upload_runtime_active(void);
+/* Whole job's completed-file percentage, or -1 when no upload batch is active.
+ * Read-only; never touches storage/network or wakes the display. */
+int upload_runtime_display_percent(void);
 bool upload_runtime_record_pending(void);
 int upload_runtime_set_time(int64_t timestamp);
 int upload_runtime_record_error(void);

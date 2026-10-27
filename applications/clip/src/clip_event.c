@@ -31,6 +31,7 @@
 #include "usb_cdc.h"
 #ifdef CONFIG_CLIP_UPLOAD
 #include "upload_runtime.h"
+#include "upload_command.h"
 #endif
 #include "config.h"
 
@@ -154,16 +155,75 @@ static enum clip_event_result execute_transition(enum clip_event event,
 /* Init                                                                        */
 /* ========================================================================== */
 
-/* MCUmgr DFU callback — notifies display on OTA start/progress/pending */
+#ifdef CONFIG_CLIP_UPLOAD
+/* Run only in the main event thread. Reserve admission before allowing the
+ * first flash write; a queued START or UPLOAD_BEGIN must observe OTA state. */
+static bool upload_ota_event(enum clip_event event, enum clip_state current,
+                             struct clip_event_result_info *result)
+{
+    enum clip_event_result status = CLIP_EVENT_OK;
+    if (event == CLIP_EVENT_OTA_START) {
+        /* A disconnect can overtake a queued chunk-admission request. Do not
+         * reserve the device for a BLE peer that has already gone away. */
+        if (!ble_is_connected()) {
+            status = CLIP_EVENT_BUSY;
+        } else if (current != CLIP_STATE_OTA) {
+            if (current != CLIP_STATE_IDLE || audio_is_recording() ||
+                transfer_is_active() || upload_runtime_active() ||
+                upload_runtime_record_pending() || !upload_command_claim_ota()) {
+                status = CLIP_EVENT_BUSY;
+            } else {
+                atomic_set(&g_state, CLIP_STATE_OTA);
+                display_post_event(UI_EVENT_OTA_START);
+            }
+        }
+    } else if (event == CLIP_EVENT_OTA_DONE) {
+        if (current == CLIP_STATE_OTA) {
+            upload_command_release_ota();
+            atomic_set(&g_state, CLIP_STATE_IDLE);
+            display_post_event(UI_EVENT_OTA_DONE);
+        }
+    } else if (current == CLIP_STATE_OTA && event != CLIP_EVENT_STATUS_SHOW) {
+        status = CLIP_EVENT_BUSY;
+    } else {
+        return false;
+    }
+    if (result) {
+        result->result = status;
+        result->error_code = status == CLIP_EVENT_OK ? 0 : -EBUSY;
+    }
+    return true;
+}
+
+static void upload_ota_done(void)
+{
+    struct clip_event_result_info result;
+    /* Queue saturation must not permanently retain the OTA reservation. */
+    while (clip_post_event_sync(CLIP_EVENT_OTA_DONE, &result)) {
+        k_sleep(K_MSEC(10));
+    }
+}
+#endif
+
+/* MCUmgr DFU callback — admission plus display/progress notifications. */
 static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return prev_status,
                                           int32_t *rc, uint16_t *group, bool *abort_more,
                                           void *data, size_t data_size)
 {
 #ifdef CONFIG_CLIP_UPLOAD
-    /* This experiment uses bootloader USB recovery, not application DFU. */
+    if (prev_status != MGMT_CB_OK) { return prev_status; }
     if (event == MGMT_EVT_OP_IMG_MGMT_DFU_STARTED || event == MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK) {
-        *rc = MGMT_ERR_EBUSY;
-        return MGMT_CB_ERROR_RC;
+        struct clip_event_result_info result;
+        if (clip_post_event_sync(CLIP_EVENT_OTA_START, &result) ||
+            result.result != CLIP_EVENT_OK) {
+            *rc = MGMT_ERR_EBUSY;
+            return MGMT_CB_ERROR_RC;
+        }
+        if (!ble_is_connected()) {
+            upload_ota_done();
+            *rc = MGMT_ERR_EBUSY;
+            return MGMT_CB_ERROR_RC;
+        }
     }
 #endif
     if (event == MGMT_EVT_OP_IMG_MGMT_DFU_STARTED) {
@@ -175,7 +235,9 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
         ota_in_progress = true;
         /* Start periodic work to poll g_img_mgmt_state */
         k_work_schedule(&ota_progress_work, K_MSEC(OTA_PROGRESS_POLL_INTERVAL_MS));
+#ifndef CONFIG_CLIP_UPLOAD
         clip_post_event(CLIP_EVENT_OTA_START);
+#endif
     } else if (event == MGMT_EVT_OP_IMG_MGMT_DFU_CHUNK) {
         if (data && data_size >= sizeof(struct img_mgmt_upload_check)) {
             struct img_mgmt_upload_check *check = (struct img_mgmt_upload_check *)data;
@@ -188,7 +250,9 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
                 LOG_INF("OTA resumed at offset %zu", (size_t)check->req->off);
                 ota_in_progress = true;
                 k_work_schedule(&ota_progress_work, K_MSEC(OTA_PROGRESS_POLL_INTERVAL_MS));
+#ifndef CONFIG_CLIP_UPLOAD
                 clip_post_event(CLIP_EVENT_OTA_START);
+#endif
             }
 
             if (check->action && g_ota_total_size == 0) {
@@ -256,7 +320,11 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
         k_mutex_unlock(&ota_mutex);
         ota_in_progress = false;
         k_work_cancel_delayable(&ota_progress_work);
+#ifdef CONFIG_CLIP_UPLOAD
+        upload_ota_done();
+#else
         clip_post_event(CLIP_EVENT_OTA_DONE);
+#endif
     }
 
     return MGMT_CB_OK;
@@ -264,12 +332,22 @@ static enum mgmt_cb_return mcumgr_dfu_cb(uint32_t event, enum mgmt_cb_return pre
 
 void clip_event_ota_cancel(void)
 {
+#ifdef CONFIG_CLIP_UPLOAD
+    /* PENDING stops progress but must retain admission until reboot or BLE
+     * disconnect. Also release if admission preceded the STARTED callback. */
+    if (clip_event_get_state() == CLIP_STATE_OTA) {
+        ota_in_progress = false;
+        k_work_cancel_delayable(&ota_progress_work);
+        upload_ota_done();
+    }
+#else
     if (ota_in_progress) {
         LOG_INF("OTA cancelled (BLE disconnect)");
         ota_in_progress = false;
         k_work_cancel_delayable(&ota_progress_work);
         clip_post_event(CLIP_EVENT_OTA_DONE);
     }
+#endif
 }
 
 static struct mgmt_callback mcumgr_dfu_cb_started;
@@ -473,6 +551,7 @@ void clip_event_process(void)
         }
 
 #ifdef CONFIG_CLIP_UPLOAD
+        if (upload_ota_event(item.event, current, item.result)) { goto notify; }
         if (upload_runtime_event(item.event, item.result,
             current == CLIP_STATE_IDLE && !audio_is_recording() &&
             !transfer_is_active() && !ota_in_progress)) {

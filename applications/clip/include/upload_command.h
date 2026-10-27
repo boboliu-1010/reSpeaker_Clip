@@ -10,4 +10,6 @@ void upload_command_end(void);
 void upload_command_defer(void);
 bool upload_command_claim_upload(void);
 void upload_command_release_upload(void);
+bool upload_command_claim_ota(void);
+void upload_command_release_ota(void);
 #endif

@@ -80,9 +80,10 @@ config CLIP_UPLOAD
 	bool "Recording upload over DTLS"
 	default n
 	help
-	  Station-only, stopped-recording upload over DTLS/UDP. Uses CDC-only USB, optional BLE
-	  App controls, and retains baseline application BLE SMP OTA in the maintained
-	  default and production presets. Requires a supplied trusted CA.
+	  Station-only, stopped-recording upload over DTLS/UDP. Uses CDC-only USB,
+	  optional BLE App controls, and idle-only BLE SMP firmware upload with
+	  exclusive admission. Bootloader USB recovery remains available.
+	  Requires a supplied trusted CA.
 
 config CLIP_UPLOAD_APP
 	bool "BLE provisioning validation, upload controls and notifications"

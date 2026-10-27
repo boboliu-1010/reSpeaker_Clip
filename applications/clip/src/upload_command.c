@@ -4,7 +4,7 @@
 #include "at_server.h"
 #include "upload_command.h"
 
-enum { AVAILABLE, COMMAND, UPLOAD, DEFERRED };
+enum { AVAILABLE, COMMAND, UPLOAD, DEFERRED, OTA };
 static atomic_t admission;
 
 static bool one_of(const char *name, const char *const *names, size_t count)
@@ -39,7 +39,8 @@ int upload_command_begin(const char *name, uint8_t type, bool idle,
     bool guarded = storage_query || IN(exclusive) || IN(settings);
     bool recording = !strcmp(name, "START") || !strcmp(name, "STOP") ||
                      !strcmp(name, "PAUSE") || !strcmp(name, "RESUME") || !strcmp(name, "MARK");
-    if (atomic_get(&admission) == DEFERRED && (guarded || recording)) { return -EBUSY; }
+    if ((atomic_get(&admission) == DEFERRED || atomic_get(&admission) == OTA) &&
+        (guarded || recording)) { return -EBUSY; }
     /* START/STOP use the event dispatcher, including upload preemption. */
     if (recording) {
         return (uploading || pending) && strcmp(name, "START") && strcmp(name, "STOP") ? -EBUSY : 0;
@@ -56,3 +57,5 @@ void upload_command_end(void) { (void)atomic_cas(&admission, COMMAND, AVAILABLE)
 void upload_command_defer(void) { (void)atomic_cas(&admission, COMMAND, DEFERRED); }
 bool upload_command_claim_upload(void) { return atomic_cas(&admission, AVAILABLE, UPLOAD); }
 void upload_command_release_upload(void) { (void)atomic_cas(&admission, UPLOAD, AVAILABLE); }
+bool upload_command_claim_ota(void) { return atomic_cas(&admission, AVAILABLE, OTA); }
+void upload_command_release_ota(void) { (void)atomic_cas(&admission, OTA, AVAILABLE); }

@@ -68,8 +68,9 @@ commands (`at_server.c`, `at_commands.c`), UI (`display.c`, `button.c`,
 - **USB**: CDC ACM serial AT channel; MSC recording-disk access is disabled.
 - **Wi-Fi**: device joins a configured 2.4 GHz WPA2 network as Station and uploads
   directly to the receiver over DTLS/UDP; no AP is exposed by `dtls-single`.
-- Application BLE SMP OTA is enabled in both default and production builds;
-  USB serial recovery remains available. See [upgrade validation status](../../docs/usb_dfu.md#当前上传分支补充).
+- Application BLE SMP OTA is admitted only while idle, excluding recording,
+  phone download, active server upload and reserved device operations. USB serial
+  recovery remains available. See [upgrade validation status](../../docs/usb_dfu.md#当前上传分支补充).
 
 Build the maintained feature using [tools/upload](../../tools/upload/README.md).
 The plain board/application examples above are not evidence that a build includes

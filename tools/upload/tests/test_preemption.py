@@ -98,6 +98,10 @@ static enum clip_event_result execute_transition(enum clip_event event,
     if (recording_result == CLIP_EVENT_OK) audio_active = true;
     return recording_result;
 }
+static bool upload_ota_event(enum clip_event event, enum clip_state state,
+                             struct clip_event_result_info *result) {
+    (void)event; (void)state; (void)result; return false;
+}
 '''
         policy = (ROOT / 'applications/clip/src/upload_command.c').read_text()
         code += '\n'.join(line for line in policy.splitlines() if not line.startswith('#include'))

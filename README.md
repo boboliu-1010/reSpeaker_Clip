@@ -15,11 +15,14 @@ configuration survives reboot. Recording preempts upload. Files upload serially
 over a reused connection; production deletes a whole recording session only
 after all its segments are confirmed and local completion state is saved.
 
-Both default and production builds retain BLE AT control, application BLE SMP
-OTA and USB serial recovery. The maintained preset disables Wi-Fi AP and USB
-mass storage. BLE OTA is compiled in but has not been revalidated end to end on
-the latest builds. Current standby consumption has not been independently
-measured; the baseline idle figure below is not a current-upload measurement.
+Both default and production builds retain BLE AT control, BLE SMP firmware
+upload and USB serial recovery. Firmware upload is accepted only while idle;
+recording, phone download, active server upload or another reserved operation
+returns Busy. An accepted OTA reserves the device until cancellation, error,
+BLE disconnect or reboot. Complete BLE upgrade remains pending device validation
+for this change. The maintained preset disables Wi-Fi AP and USB mass storage.
+Current standby consumption has not been independently measured; the baseline
+idle figure below is not a current-upload measurement.
 
 Start with the [upload flow](docs/dtls-upload-core.md),
 [upload build helper](tools/upload/README.md), [App protocol](docs/protocol.md#当前上传分支补充)

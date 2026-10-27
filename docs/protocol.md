@@ -2981,10 +2981,16 @@ the original device protocol is not an uplink benchmark for this firmware.
 
 ### 当前上传固件升级方式
 
-Application BLE SMP OTA is enabled in both maintained default and production
-builds. BLE AT control, including the supported command to enter recovery, is
-separate from the SMP firmware-transfer service. USB serial recovery also remains
-available. See the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
+Application BLE SMP firmware upload is admitted only while idle in both default
+and production builds. `mcumgr_dfu_cb()` synchronously reserves OTA state before
+accepting a DFU chunk. Recording (including paused), phone download, active
+server upload, a pending recording or a reserved device operation returns
+`MGMT_ERR_EBUSY` (10). During OTA, new recording, upload and conflicting operations
+are blocked. Completion retains the reservation while awaiting reboot; error,
+cancellation or BLE disconnect releases it. A client rejected as busy must retry
+when idle; starting OTA does not cancel a server upload automatically.
+BLE AT control is separate from the SMP firmware-transfer service. USB serial
+recovery remains available. See the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
 
 # Optional runtime instrumentation (`CLIP_RESOURCE_STATS`)
 

@@ -2,7 +2,7 @@
 
 > The maintained recording-upload firmware uses Station Wi-Fi and DTLS/UDP;
 > AP service and USB disk access are disabled in that preset. Application BLE SMP
-> OTA remains enabled in both default and production builds; see the
+> firmware upload is admitted only while idle in default and production builds; see the
 > [upgrade guide and validation status](../docs/usb_dfu.md#当前上传分支补充).
 > See [upload behavior](../docs/dtls-upload-core.md) and the
 > [BLE/USB provisioning contract](../docs/protocol.md#station-wi-fi-provisioning-in-the-upload-build).

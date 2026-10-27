@@ -1,6 +1,6 @@
 # Custom App Development Guide for reSpeaker Clip
 
-> This guide covers custom applications using the board sources. For the maintained recording-upload firmware use [development.md](development.md); AP and USB disk are disabled in its optimized preset. Application BLE SMP OTA remains enabled in both default and production builds; see the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
+> This guide covers custom applications using the board sources. For the maintained recording-upload firmware use [development.md](development.md); AP and USB disk are disabled in its optimized preset. Application BLE SMP firmware upload is admitted only while idle in both default and production upload builds; see the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
 
 This guide explains how to build your own Zephyr RTOS applications for the
 reSpeaker Clip — and have them **automatically boot under the platform's custom

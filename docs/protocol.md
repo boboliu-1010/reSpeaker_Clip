@@ -2979,11 +2979,12 @@ and [build resources](development.md#当前资源基准). The Wi-Fi AP download 
 the original device protocol is not an uplink benchmark for this firmware.
 
 
-### 当前上传固件升级限制
+### 当前上传固件升级方式
 
-Application BLE OTA is disabled in the maintained upload build. BLE AT control,
-including the supported command to enter recovery, is separate from BLE SMP OTA.
-Use the [USB serial recovery guide](usb_dfu.md) for the current update path.
+Application BLE SMP OTA is enabled in both maintained default and production
+builds. BLE AT control, including the supported command to enter recovery, is
+separate from the SMP firmware-transfer service. USB serial recovery also remains
+available. See the [upgrade guide and validation status](usb_dfu.md#当前上传分支补充).
 
 # Optional runtime instrumentation (`CLIP_RESOURCE_STATS`)
 

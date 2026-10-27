@@ -308,9 +308,16 @@ field devices should go through RMA instead.
 
 ## 当前上传分支补充
 
-Current upload firmware upgrades use the bootloader USB serial recovery path
-with the **mcumgr Simple Management Protocol (SMP)**. Application BLE SMP OTA is
-disabled; encrypted BLE AT control remains available and is a different feature.
+Both maintained default and production upload builds enable application BLE OTA
+with **mcumgr Simple Management Protocol (SMP)** and retain bootloader USB serial
+recovery. Encrypted BLE AT control is a separate service from BLE SMP OTA.
+
+Validation status: the latest default and production build configurations enable
+`CONFIG_NCS_SAMPLE_MCUMGR_BT_OTA_DFU`, `CONFIG_MCUMGR` and
+`CONFIG_MCUMGR_TRANSPORT_BT`. Recent device updates used USB recovery; a complete
+BLE OTA transfer and post-update boot have not been revalidated on these builds.
+Enabling the service does not imply automatic rollback: the baseline bootloader
+uses overwrite-only mode, as described above.
 
 > The bootloader's USB serial recovery and the application's UART console are
 > independent. **Production builds (console off) still support USB serial DFU.**
@@ -320,7 +327,7 @@ disabled; encrypted BLE AT control remains available and is a different feature.
 | Method | Probe? | Tool | Artifact |
 |--------|--------|------|----------|
 | **USB serial DFU** (recommended) | No | `nrfutil mcu-manager` / `mcumgr` / nRF Connect | `*-signed.bin` or `*-ota.zip` |
-| BLE OTA | — | Disabled in the maintained upload firmware | — |
+| BLE OTA | No | Mobile nRF Connect / Device Manager / `mcumgr` | `*-ota.zip` or `*-signed.bin` |
 | Programmer | Yes (J-Link) | `west flash` / `nrfutil device program` | `*-merged.hex` |
 
 Native USB-DFU (`dfu-util`) is **not** used — see [Why not dfu-util / native USB-DFU?](#why-not-dfu-util--native-usb-dfu).
@@ -483,12 +490,16 @@ mcumgr --conntype serial --connstring dev=/dev/ttyACM0,mtu=512 reset
 
 - **Desktop**: Programmer app → select the serial port → add the `-signed.bin` or
   `-ota.zip` → "Update".
-- Application BLE OTA is disabled in this upload firmware; use the desktop USB path.
+- **Mobile**: connect over BLE using nRF Connect / Device Manager and select the
+  signed firmware package. See the validation status at the start of this supplement.
 
 ## BLE OTA
 
-Not enabled in the maintained upload build. Use USB recovery. This restriction
-is independent of normal BLE AT commands and the App's upload-control interface.
+Enabled in both maintained default and production builds through the baseline
+mcumgr BLE service. Use the baseline BLE OTA instructions above and a compatible
+signed package. This service is independent of BLE AT commands and the App's
+upload-control interface. USB recovery remains the tested recovery path; see the
+validation status at the start of this supplement.
 
 ## Programmer (when a probe is available)
 

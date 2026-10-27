@@ -18,9 +18,9 @@
 
 ```sh
 python3 tools/upload/build.py \
-  --ncs /home/ubuntu/firmware/ncs \
-  --sdk /home/ubuntu/firmware/zephyr-sdk-0.17.0 \
-  --build /home/ubuntu/firmware/ncs/build-clip-upload-default \
+  --ncs /path/to/ncs \
+  --sdk /path/to/zephyr-sdk \
+  --build /path/to/ncs/build-clip-upload-default \
   --ca /absolute/path/to/public-ca.pem \
   --preset dtls-single
 ```

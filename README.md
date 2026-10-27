@@ -6,6 +6,30 @@ USB, AT-command control, and UDP file transfer.
 
 > **Note**: Product name is spelled **reSpeaker** (lowercase `r`).
 
+## Maintained recording-upload firmware
+
+The `feature/dtls-upload-core-0.1.2` branch retains recording and adds automatic,
+resumable file upload directly to a server over DTLS 1.2/UDP. The App provisions
+one 2.4 GHz WPA2 Station network and receiver credentials over encrypted BLE;
+configuration survives reboot. Recording preempts upload. Files upload serially
+over a reused connection; production deletes a whole recording session only
+after all its segments are confirmed and local completion state is saved.
+
+Both default and production builds retain BLE AT control, application BLE SMP
+OTA and USB serial recovery. The maintained preset disables Wi-Fi AP and USB
+mass storage. BLE OTA is compiled in but has not been revalidated end to end on
+the latest builds. Current standby consumption has not been independently
+measured; the baseline idle figure below is not a current-upload measurement.
+
+Start with the [upload flow](docs/dtls-upload-core.md),
+[upload build helper](tools/upload/README.md), [App protocol](docs/protocol.md#当前上传分支补充)
+and [receiver](server/README.md). Latest recorded resources and device validation
+are in [development](docs/development.md#当前资源基准).
+
+The hardware capabilities, feature list and plain build commands below describe
+the upstream baseline. Use the upload build helper to select the maintained
+upload preset; the plain application build does not select it automatically.
+
 ## Hardware
 
 | Component | Part |

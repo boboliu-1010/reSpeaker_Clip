@@ -184,9 +184,9 @@ an IP address. These samples do not reproduce the earlier Wi-Fi failure.
 The first task uploaded the complete recording and the server verified its
 SHA256; later successes can find the already-stored object.
 
-Source inspection identified a separate receiver limitation:
+Source inspection of the earlier receiver identified a separate limitation:
 `DatagramTLS.operation()` reads from the shared UDP socket but discards packets
-whose peer differs from the current session. The server processes one session
+whose peer differs from the current session. That receiver processed one session
 at a time, and `run_session()` can retain it for120 seconds after its last
 valid activity if close notification is lost. A new peer's handshake can
 therefore be discarded during that interval. A loopback reproduction using
@@ -195,6 +195,21 @@ retention of a synthetic foreign-peer datagram. This proves the dispatch
 limitation, not that close-notify loss occurred in the device test or that
 this caused the previous Wi-Fi authentication failure. Neither failure is
 marked fixed by these diagnostics.
+
+The maintained receiver source has since replaced that production receive path
+with `Receiver.dispatch()`: one UDP reader routes packets into bounded per-peer
+queues, and each DTLS worker consumes its own queue through `receive_packet`.
+The default limit is eight workers. An authenticated OPEN claims the device
+and closes its previous writer before recovering the durable checkpoint;
+an unauthenticated handshake cannot take over an authenticated writer.
+The direct-socket fallback still exists in `DatagramTLS`, but is not the path
+used by `Receiver.serve()`. The per-session 120-second idle deadline remains;
+it no longer means the whole listener waits for that session to end.
+
+This describes the current repository implementation, not automatic deployment
+to an existing server. Check the running entry point before interpreting a
+capture. It addresses the identified dispatch limitation, without proving the
+root cause or elimination of every earlier handshake timeout or Wi-Fi failure.
 
 ## Original supplicant disconnect details
 

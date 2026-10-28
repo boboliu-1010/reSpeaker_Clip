@@ -58,6 +58,28 @@ int main(int argc,char**argv){
             with self.subTest(mode=mode):
                 compile_run(code, [str(mode)])
 
+    def test_boa_origin_mismatch_denies_upload_before_transport_or_record_mutation(self):
+        code = self.worker_fixture().split('int main(', 1)[0]
+        point = code.index('static int upload_file(')
+        adapter = r'''
+#include "upload_config.h"
+struct upload_config settings={.binding_id="0123456789abcdef0123456789abcdef",.epoch=1};
+static bool origin_allowed;
+bool recording_origin_matches(const char*id,const char*binding,uint32_t epoch){assert(id&&strlen(binding)==32&&epoch==1);return origin_allowed;}
+'''
+        code = '#define CONFIG_BOA_USER_BINDING 1\n' + code[:point] + adapter + code[point:]
+        code += r'''
+int main(int argc,char**argv){
+ assert(argc==2);origin_allowed=atoi(argv[1]);mode=REUSE;
+ if(!setjmp(done))worker(NULL,NULL,NULL);
+ if(origin_allowed){assert(uploads==3&&stored==3&&connections==1);}
+ else {assert(!uploads&&!stored&&!connections&&!wifi_starts&&!saves&&last_scheduled==-EACCES);}
+ assert(ended&&!active&&!radio&&!buffers);return 0;
+}
+'''
+        for allowed in ('0','1'):
+            compile_run(code,[allowed])
+
     def worker_fixture(self):
         source = (ROOT/'applications/clip/src/upload_runtime.c').read_text()
         worker = source[source.index('static int upload_file('):source.index('/* Full ECDSA handshakes')]

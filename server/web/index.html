@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boa · 设备工作台</title>
+  <link rel="stylesheet" href="./style.css"><script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="./"><span class="brand-icon">b.</span><span>boa<span class="brand-sub">DEVICE CONSOLE</span></span></a>
+    <div class="workspace-label">工作空间</div>
+    <a class="nav" href="#recordings"><span>♪</span>我的录音 <span class="nav-count" id="recording-count">0</span></a>
+    <a class="nav" href="#clip-config"><span>⚙</span>Clip 配置</a>
+    <a class="nav active" href="#library"><span>◫</span>固件库 <span class="nav-count" id="nav-count">0</span></a>
+    <a class="nav" href="#device"><span>⌁</span>设备升级</a>
+    <a class="nav" href="#history"><span>◷</span>升级记录</a>
+    <div class="sidebar-bottom"><span class="status-dot"></span> Boa Server <small>Web prototype · Beta</small></div>
+  </aside>
+  <main>
+    <header class="topbar"><span>设备与录音 <span class="slash">/</span> Boa Voice</span><span class="pill">BETA · 本地原型</span></header>
+    <section class="heading"><div><div class="eyebrow">BOA VOICE WORKSPACE</div><h1>连接 Clip，收好每一段录音。</h1><p>服务自动连接，在这里查看录音、连接设备和管理固件。</p></div><button id="refresh" class="secondary" disabled>↻ 刷新</button></section>
+    <section class="session card">
+      <div><span class="status-dot" id="server-dot"></span><strong id="identity">正在连接 Boa Server…</strong><small id="endpoint"></small><small id="server-status" role="status">自动连接当前 Server…</small></div>
+      <div class="session-actions"><button id="server-retry" class="secondary" hidden>重新连接</button><input id="user-id" placeholder="输入用户 ID" autocomplete="username" aria-label="用户 ID" maxlength="32"><button id="login">进入</button><details id="manual-login" class="manual-login"><summary>开发者登录</summary><div class="manual-login-fields"><input id="token" type="password" placeholder="开发者访问令牌" autocomplete="off" aria-label="开发者访问令牌"><button id="developer-login">登录</button></div></details><button id="logout" class="secondary" hidden>退出</button></div>
+    </section>
+    <section id="recordings" class="card recordings-panel">
+      <div class="section-title"><div><h2>我的录音</h2><p>属于你的声音，按上传时间从新到旧。支持 Chrome 播放。</p></div><button id="recording-refresh" class="secondary" disabled>刷新录音</button></div>
+      <div class="recording-player">
+        <div class="recording-player-heading"><span class="recording-icon">♪</span><div><strong id="recording-player-title">选择一条录音，开始播放</strong><small id="recording-player-note">Clip 原始音频在当前浏览器中解码。</small></div></div>
+        <div class="recording-player-controls"><button id="recording-toggle" disabled>播放</button><input id="recording-seek" type="range" aria-label="录音播放进度" min="0" max="1000" step="1" value="0" disabled><span id="recording-time">0:00 / 0:00</span></div>
+        <audio id="recording-audio" preload="metadata"></audio>
+      </div>
+      <div id="recording-feedback" class="recording-feedback" role="status">文件按登录用户隔离；点击播放后才下载。</div>
+      <div id="recording-list" class="recording-list"></div>
+      <div class="recording-pagination"><button id="recording-more" class="secondary" hidden>加载更早的录音</button></div>
+    </section>
+    <section id="clip-config" class="card clip-configuration">
+      <div class="section-title"><div><h2>Clip 配置 <span id="config-connected" class="tiny-pill">未连接</span></h2><p>连接 Clip 后查看状态。已有 Wi-Fi 和上传配置无需重填；录音后由设备自动上传。</p></div><div class="config-actions"><button id="config-connect" class="secondary" disabled>连接 Clip</button><button id="config-refresh" class="secondary" disabled>读取配置</button><button id="config-disconnect" class="secondary" disabled>断开 Clip</button></div></div>
+      <div class="clip-summary"><div><small>设备状态</small><strong id="clip-runtime">连接后读取版本、电量与容量</strong></div><div><small>Clip 的 Wi-Fi</small><strong id="clip-wifi">未读取到设备 Wi-Fi</strong><span id="clip-wifi-connection" class="wifi-device-status">连接 Clip 后读取</span><span id="clip-wifi-last-check" class="wifi-device-status">尚无网络检测结果</span></div><div><small>上传目标 / 自动上传</small><strong id="clip-upload-config">未知</strong></div></div>
+      <div class="config-grid">
+        <details id="wifi-settings" class="config-form wifi-settings" open>
+          <summary>Wi-Fi · 手动配网</summary>
+          <label for="clip-ssid">Wi-Fi 名称</label><input id="clip-ssid" placeholder="请输入 Clip 使用的 2.4 GHz Wi-Fi 名称" autocomplete="off">
+          <label for="clip-password">Wi-Fi 密码</label><div class="wifi-password-field"><input id="clip-password" type="password" placeholder="输入网络密码，本页保留" autocomplete="off"><button id="toggle-wifi-password" type="button" class="secondary" aria-pressed="false" aria-controls="clip-password">显示密码</button></div><p class="wifi-password-hint">保存、测试和重连后保留输入；密码仅留在本页，设备不会回传原密码。</p>
+          <div class="config-actions"><button id="save-wifi" disabled>保存并测试连接</button><button id="check-wifi" class="secondary" disabled>重试已保存网络</button></div>
+          <p id="clip-network-status" role="status">网络尚未检查。检查仅验证 Wi-Fi 与 DHCP。</p>
+        </details>
+        <div class="config-form"><h3>上传与状态</h3><div class="automatic-state"><span id="clip-automatic">自动上传状态未知</span><span id="clip-clock">设备时间未知</span></div><div class="config-actions"><button id="auto-on" disabled>开启自动上传</button><button id="auto-off" class="secondary" disabled>关闭自动上传</button></div><div class="upload-snapshot"><strong id="clip-stage">上传状态尚未读取</strong><progress id="clip-transfer-progress" max="1" value="0"></progress><small id="clip-confirmed">持久确认字节数未知</small></div><p id="clip-config-feedback">连接真实 Clip 后，保存会写入设备。演示模式仅限制固件刷写。</p></div>
+      </div>
+      <div class="config-form automatic-configuration"><h3>Server 自动配置</h3><small id="connected-device-uid">连接后读取设备唯一标识</small><p id="receiver-status" role="status">登录并连接 Clip 后自动覆盖上传配置，保留 Wi-Fi 和录音。</p><button id="configure-receiver" class="secondary" disabled>重试自动配置</button></div>
+      <div class="config-form"><h3>我的设备</h3><p id="owned-devices-status" role="status">登录后查看已分配设备。</p><div id="owned-devices"></div></div>
+    </section>
+    <div class="content-grid">
+      <section id="library" class="card library"><div class="section-title"><div><h2>固件库 <span class="tiny-pill">BETA</span></h2><p>选择已验签的版本，开始一次可核实的更新。</p></div><span id="role" class="muted">未连接</span></div><section class="metrics"><div class="card"><span>可见固件</span><strong id="count-all">—</strong><small>版本与制品分开核对</small></div><div class="card"><span>已发布版本</span><strong id="count-published">—</strong><small>可供用户下载</small></div><div class="card"><span>我的升级记录</span><strong id="count-history">—</strong><small>按登录身份隔离</small></div></section><div class="table-wrap"><table><thead><tr><th>版本 / 文件</th><th>适用配置</th><th>状态</th><th>操作</th></tr></thead><tbody id="release-list"></tbody></table></div><div id="empty" class="empty"><div class="empty-icon">◫</div><strong>固件库等待连接</strong><p>连接服务后，查看可用版本与校验结果。</p></div></section>
+      <section id="device" class="card device"><div class="section-title"><div><h2>连接你的 Clip</h2><p>通过浏览器蓝牙，检查设备的 SMP 升级能力。</p></div><span class="device-symbol">⌁</span></div><div class="device-state"><span class="status-dot"></span><strong id="device-name">尚未连接设备</strong><p id="bluetooth-support">正在检查浏览器能力…</p></div><button id="connect-device" class="secondary full">＋ 选择并连接 Clip</button><pre id="images" class="images" hidden></pre><div class="selected-release"><small>待更新版本</small><strong id="selected-name">从左侧选择固件</strong><span id="upgrade-reason">连接服务后可选择版本</span></div><section class="notice"><span>i</span><div><strong>升级前先确认设备固件支持 OTA</strong><p>旧版 DTLS 固件需先通过 USB 安装支持 OTA 的应用。Boa DTLS OTA 使用覆盖式升级，无自动回滚；重启后必须回读目标镜像。</p></div></section><label class="confirmation"><input id="compatible" type="checkbox">我已确认板型、网络核和固件来源匹配，设备电量充足。</label><button id="upgrade" class="full" disabled>开始升级</button><div class="progress-info"><progress id="progress" value="0" max="1"></progress><span id="progress-label">尚未开始</span></div><button id="verify" class="secondary full" disabled>重连并核实目标版本</button><button id="disconnect" class="text-button full" disabled>断开设备</button></section>
+      <section id="developer-panel" class="card import-panel" hidden><div class="section-title"><div><h2>导入一个新版本</h2><p>开发者专属 · 先校验，再发布。单个应用核 signed.bin，最大 8 MiB。</p></div><span class="pill">DEVELOPER</span></div><div class="import-form"><label class="upload-zone"><span>↑</span><strong id="file-label">选择 MCUboot 固件文件</strong><small>.bin · 不支持 ZIP / HEX</small><input id="firmware-file" type="file" accept=".bin" hidden></label><div><label class="field-label" for="profile">适用配置</label><select id="profile"><option value="boa-dtls-ota-v1">Boa DTLS + BLE OTA（覆盖式应用核升级）</option><option value="dtls-upload">Clip DTLS 实验版（OTA 未开放）</option><option value="ble-standard">标准 BLE SMP（需确认兼容）</option><option value="demo-offline">演示制品（禁止刷写）</option></select><p id="trust-status" class="muted">可信公钥由开发者在 Server 配置，不通过网页上传私钥。</p><button id="import" disabled>导入并校验</button></div></div></section>
+    </div>
+    <section id="history" class="card history"><div class="section-title"><div><h2>我的升级记录</h2><p>上传完成后仍需重连。只有目标镜像正在运行并已确认，才记录为成功。“结束记录”仅结束网页跟踪，设备状态仍需核实。</p></div><button id="end-attempt" class="secondary" disabled>结束本次核实</button></div><div id="history-list" class="history-list muted">连接服务后查看记录。</div></section>
+    <div id="message" role="status" class="message" hidden></div>
+    <footer>Boa Voice · 同一个 Server，连接你的设备与内容。<span>以设备回读结果核实升级</span></footer>
+  </main>
+</body>
+</html>

@@ -20,6 +20,9 @@
 
 #include "storage.h"
 #include "recording_hash.h"
+#ifdef CONFIG_BOA_USER_BINDING
+#include "upload_runtime.h"
+#endif
 
 LOG_MODULE_REGISTER(storage, CONFIG_CLIP_LOG_LEVEL);
 
@@ -574,6 +577,14 @@ int storage_create_session(const char *session_id, uint8_t channels,
         return rc;
     }
 
+#ifdef CONFIG_BOA_USER_BINDING
+    /* Provenance is immutable for this session. A failure preserves the user's
+     * recording but leaves it ineligible for upload; never infer old ownership
+     * from the receiver configured later. */
+    int origin_error = upload_runtime_recording_origin(session_id);
+    if (origin_error == -EEXIST) { return origin_error; }
+    if (origin_error) { LOG_WRN("Recording origin unavailable: %d", origin_error); }
+#endif
     LOG_INF("Creating session: %s", session_id);
     rc = create_marks_file(marks_path);
     if (rc != 0) {

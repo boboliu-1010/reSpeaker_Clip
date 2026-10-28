@@ -259,3 +259,15 @@ separately licensed (see above).
 - [Nordic Semiconductor](https://www.nordicsemi.com/) — nRF Connect SDK, nRF5340, nRF7002, NPM1300
 - [Zephyr Project](https://zephyrproject.org/) — RTOS
 - [Seeed Studio](https://www.seeedstudio.com/) — reSpeaker Clip hardware
+
+
+## Boa 集成开发
+
+开发分支：`boa/roger-integration`。固件以 DTLS 分支为基线，用户绑定作为可选扩展。
+
+- `applications/clip/`：设备固件；`boa-binding.conf` 启用用户绑定扩展。
+- `server/`：DTLS 接收核心、业务 API、音频存储和 Web 页面。
+- `server/web/`：设备连接、Wi-Fi 配置、用户绑定、录音播放和固件管理。
+- `mobile/app/`：Flutter 手机端和 macOS 桌面端。
+
+Server 启动、部署与测试见 [Server 说明](server/README.md)，桌面端见 [桌面端说明](README-desktop.md)。

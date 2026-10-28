@@ -36,6 +36,7 @@ tools/flash_maintenance/*.spec
 cmake-build-*/
 # Python virtualenv
 .venv/
+.venv-web/
 venv/
 ENV/
 # MacOS
@@ -65,3 +66,6 @@ ref/
 
 # Patent disclosure outputs (skill)
 outputs/
+
+# Local desktop installers
+/dist/

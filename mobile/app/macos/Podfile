@@ -1,4 +1,4 @@
-platform :osx, '10.14'
+platform :osx, '12.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -36,6 +36,20 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  # Sentry 8 uses a C static const as an array bound. Make it an integer
+  # constant expression for current Clang without changing storage size.
+  sentry_header = installer.sandbox.root + 'Sentry/Sources/SentryCrash/Recording/Tools/SentryCrashMachineContext_Apple.h'
+  if sentry_header.exist?
+    original = File.read(sentry_header)
+    corrected = original.sub('static const size_t sentrycrashmc_contextSize = sizeof(SentryCrashMachineContext);',
+                             'enum { sentrycrashmc_contextSize = sizeof(SentryCrashMachineContext) };')
+    if corrected != original
+      mode = File.stat(sentry_header).mode
+      File.chmod(mode | 0200, sentry_header)
+      File.write(sentry_header, corrected)
+      File.chmod(mode, sentry_header)
+    end
+  end
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
   end

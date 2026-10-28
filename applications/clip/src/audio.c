@@ -563,6 +563,20 @@ static int audio_start_recording_internal(enum audio_mode mode)
         const char *mode_str = (mode == AUDIO_MODE_STEREO) ? "stereo" : "mono";
         ret = storage_create_session(current_session_id, channels,
                                      AUDIO_SAMPLE_RATE, mode_str);
+#ifdef CONFIG_BOA_USER_BINDING
+        if (ret == -EEXIST) {
+            /* Never reuse old recording metadata/audio after a clock collision. */
+            (void)dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
+            mic_power_off();
+            cleanup_opus_encoder();
+#ifdef CONFIG_SPEEXDSP
+            cleanup_speex_preprocessor();
+            speex_enabled = false;
+#endif
+            clip_cpu_boost_release();
+            return ret;
+        }
+#endif
         if (ret != 0 && ret != -EEXIST) {
             LOG_WRN("Failed to create storage session: %d", ret);
         }

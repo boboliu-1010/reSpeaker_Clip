@@ -38,6 +38,10 @@ BUILD_ASSERT(CONFIG_CLIP_DTLS_INITIAL_WINDOW_PACKETS <= CONFIG_CLIP_DTLS_WINDOW_
 #include "upload_state.h"
 #include "recording_hash.h"
 #include "upload_config.h"
+#ifdef CONFIG_BOA_USER_BINDING
+#include "user_binding.h"
+#include "recording_origin.h"
+#endif
 #include "upload_scan.h"
 #ifdef CONFIG_CLIP_UPLOAD_AUTODELETE
 #include "upload_cleanup.h"
@@ -224,8 +228,21 @@ void upload_runtime_record_complete(enum clip_event_result result)
 
 int upload_runtime_command_begin(const char *name, uint8_t type)
 {
-    return upload_command_begin(name, type, clip_event_get_state() == CLIP_STATE_IDLE,
-                                upload_runtime_active(), upload_runtime_record_pending(), transfer_is_active());
+    int ret = upload_command_begin(name, type, clip_event_get_state() == CLIP_STATE_IDLE,
+                                   upload_runtime_active(), upload_runtime_record_pending(), transfer_is_active());
+#ifdef CONFIG_BOA_USER_BINDING
+    if (!ret && type == AT_CMD_TYPE_SET && (!strcmp(name, "BINDCFG") || !strcmp(name, "BINDCLR"))) {
+        /* Drain earlier recording events and recheck idle in their own thread.
+         * The reservation blocks later events until settings persistence ends. */
+        struct clip_event_result_info result;
+        ret = clip_post_event_sync(CLIP_EVENT_BIND_BEGIN, &result);
+        if (ret || result.result != CLIP_EVENT_OK) {
+            upload_command_end();
+            return -EBUSY;
+        }
+    }
+#endif
+    return ret;
 }
 
 bool upload_runtime_event(enum clip_event event, struct clip_event_result_info *result,
@@ -233,6 +250,18 @@ bool upload_runtime_event(enum clip_event event, struct clip_event_result_info *
 {
     enum clip_event_result ret = CLIP_EVENT_OK;
     int error = 0;
+#ifdef CONFIG_BOA_USER_BINDING
+    if (event == CLIP_EVENT_BIND_BEGIN) {
+        bool idle = device_idle && !upload_runtime_active() && !upload_runtime_record_pending() &&
+            !transfer_is_active() && upload_command_binding_activate();
+        if (result) { result->result = idle ? CLIP_EVENT_OK : CLIP_EVENT_BUSY; result->error_code = idle ? 0 : -EBUSY; }
+        return true;
+    }
+    if (upload_command_binding_active() && event != CLIP_EVENT_STATUS_SHOW && event != CLIP_EVENT_USB_CONNECTED) {
+        if (result) { result->result = CLIP_EVENT_BUSY; result->error_code = -EBUSY; }
+        return true;
+    }
+#endif
     if (event == CLIP_EVENT_START || event == CLIP_EVENT_STOP) { atomic_inc(&activity); }
     if (event == CLIP_EVENT_POWER_OFF_EXEC) { atomic_set(&auto_paused, 1); }
     if (event == CLIP_EVENT_UPLOAD_BEGIN) {
@@ -473,6 +502,9 @@ static int choose_visit(const char *id, uint32_t number, uint32_t size, bool sea
 {
     struct selection *selection = context;
     if (!sealed || !size || size > MAX_FILE) { return 0; }
+#ifdef CONFIG_BOA_USER_BINDING
+    if (!recording_origin_matches(id, settings.binding_id, settings.epoch)) { return 0; }
+#endif
 #ifdef CONFIG_CLIP_DTLS_PREPARE_MEASURE
     if (measurement_session[0]) {
         /* Replay each sealed file once, including already-uploaded files.
@@ -642,6 +674,9 @@ static int list_states(const char *args, char *response, size_t length)
         bool match = !loaded && record.size == item->size &&
                      !memcmp(record.destination_sha256, destination, sizeof(destination));
         bool eligible = item->sealed && item->size && item->size <= MAX_FILE;
+#ifdef CONFIG_BOA_USER_BINDING
+        eligible = eligible && recording_origin_matches(item->key.session, settings.binding_id, settings.epoch);
+#endif
         int n = snprintf(response + used, length - used,
             "%s{\"session\":\"%s\",\"segment\":%u,\"state\":\"%s\",\"size\":%u,"
             "\"confirmed\":%u,\"eligible\":%s,\"state_error\":%d}", i ? "," : "",
@@ -800,6 +835,9 @@ static int upload_file(void)
     struct upload_file_record stamp = {0};
     struct fs_dirent entry;
     if (!ret) { ret = storage_ensure_mounted(); }
+#ifdef CONFIG_BOA_USER_BINDING
+    if (!ret && !recording_origin_matches(session, settings.binding_id, settings.epoch)) { ret = -EACCES; }
+#endif
     if (!ret) { ret = storage_build_chunk_path(session, segment, path, sizeof(path)); }
     if (!ret) { ret = fs_stat(path, &entry); }
     if (!ret && (entry.type != FS_DIR_ENTRY_FILE || !entry.size || entry.size > MAX_FILE)) { ret = -EINVAL; }
@@ -1056,6 +1094,64 @@ static int configure_datagram_window(const char *args, char *response, size_t le
 }
 #endif
 
+#ifdef CONFIG_BOA_USER_BINDING
+struct recording_origin_snapshot {
+    char binding_id[33];
+    uint32_t epoch;
+    bool ready;
+};
+static struct recording_origin_snapshot recording_origin_snapshot;
+static struct k_spinlock recording_origin_lock;
+
+/* Writers own control_lock, except initialization before initialized is set.
+ * Publish only complete live settings, after persistence has succeeded. */
+static void publish_recording_origin(void)
+{
+    struct recording_origin_snapshot snapshot = {.epoch = settings.epoch, .ready = true};
+    memcpy(snapshot.binding_id, settings.binding_id, sizeof(snapshot.binding_id));
+    k_spinlock_key_t key = k_spin_lock(&recording_origin_lock);
+    recording_origin_snapshot = snapshot;
+    k_spin_unlock(&recording_origin_lock, key);
+}
+
+int upload_runtime_recording_origin(const char *session_id)
+{
+    /* The uploader may own control_lock while synchronously waiting for this
+     * event thread, including UPLOAD_END's pending START replay. Never acquire
+     * that mutex here or read settings while an AT writer may replace it. */
+    k_spinlock_key_t key = k_spin_lock(&recording_origin_lock);
+    struct recording_origin_snapshot snapshot = recording_origin_snapshot;
+    k_spin_unlock(&recording_origin_lock, key);
+    if (!snapshot.ready) { return -EAGAIN; }
+    return recording_origin_create(session_id, snapshot.binding_id, snapshot.epoch);
+}
+
+int upload_runtime_factory_reset(void)
+{
+    k_mutex_lock(&control_lock, K_FOREVER);
+    int ret = -EBUSY;
+    if (!upload_runtime_active() && !upload_runtime_record_pending() &&
+        clip_event_get_state() == CLIP_STATE_IDLE && !transfer_is_active()) {
+        ret = upload_config_clear();
+        config_error = ret;
+        if (!ret) {
+            memset(&settings, 0, sizeof(settings));
+            strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
+            config_saved = false;
+            if (atomic_get(&initialized)) { publish_recording_origin(); }
+            atomic_set(&auto_paused, 1); atomic_clear(&time_ready);
+            cursor_session[0] = 0; cursor_segment = 0;
+#ifdef CONFIG_CLIP_UPLOAD_APP
+            atomic_clear(&app_enabled);
+            app_reset_network("idle");
+#endif
+        }
+    }
+    k_mutex_unlock(&control_lock);
+    return ret;
+}
+#endif
+
 static int configure_network(char *args)
 {
     char *split = strchr(args, ',');
@@ -1193,7 +1289,23 @@ static int command_locked(struct at_cmd_ctx *ctx, char *response, size_t length)
          !strcmp(ctx->name, "UPLOADSTATE") || !strcmp(ctx->name, "UPLOADLIST") ||
          (!strcmp(ctx->name, "UPLOAD") && ctx->type != AT_CMD_TYPE_SET));
 #endif
+#ifdef CONFIG_BOA_USER_BINDING
+    bool binding = !strcmp(ctx->name, "IDENTITY") || !strcmp(ctx->name, "BINDING") ||
+        !strcmp(ctx->name, "BINDCFG") || !strcmp(ctx->name, "BINDCLR");
+    phone_control |= binding && ctx->transport_type == TRANSPORT_TYPE_BLE;
+#endif
     if (ctx->transport_type != TRANSPORT_TYPE_USB && !phone_control) { ret = -EACCES; goto reply; }
+#ifdef CONFIG_BOA_USER_BINDING
+    if (binding) {
+        /* The outer AT admission owns the binding reservation and has drained
+         * prior events. Never pause auto upload to obtain this admission. */
+        int n = user_binding_command(ctx, &settings, &config_saved, response, length);
+        if (!strcmp(ctx->name, "BINDCLR") && !settings.binding_id[0] && !settings.enabled) {
+            atomic_set(&auto_paused, 1);
+        }
+        return n;
+    }
+#endif
     if (!strcmp(ctx->name, "NETCFG") && ctx->type != AT_CMD_TYPE_SET) {
         return network_status(response, length);
     }
@@ -1387,6 +1499,11 @@ static int command(struct at_cmd_ctx *ctx, char *response, size_t length)
 {
     k_mutex_lock(&control_lock, K_FOREVER);
     int ret = command_locked(ctx, response, length);
+#ifdef CONFIG_BOA_USER_BINDING
+    /* BINDCFG/BINDCLR retain event admission until this publication completes.
+     * Legacy receiver writes also publish before their AT handler returns. */
+    if (atomic_get(&initialized)) { publish_recording_origin(); }
+#endif
 #ifdef CONFIG_CLIP_UPLOAD_APP
     atomic_set(&app_enabled, settings.enabled);
 #endif
@@ -1400,6 +1517,10 @@ int upload_runtime_register(void)
     if (!configuration) { return -ENOMEM; }
     int ret;
     static const struct at_command commands[] = {
+#ifdef CONFIG_BOA_USER_BINDING
+        {"IDENTITY", AT_CMD_QUERY, command}, {"BINDING", AT_CMD_QUERY, command},
+        {"BINDCFG", AT_CMD_SET, command}, {"BINDCLR", AT_CMD_SET, command},
+#endif
         {"NETCFG", AT_CMD_SET | AT_CMD_QUERY, command}, {"UPLOADCFG", AT_CMD_SET | AT_CMD_QUERY, command},
         {"UPLOAD", AT_CMD_QUERY
 #ifdef CONFIG_CLIP_DEBUG_INTERFACES
@@ -1432,13 +1553,20 @@ int upload_runtime_register(void)
         if (ret) { return ret; }
     }
     ret = upload_config_init(&settings);
-    config_error = ret; config_saved = !ret && settings.version == 1;
+    config_error = ret; config_saved = !ret && (settings.version == 1
+#ifdef CONFIG_BOA_USER_BINDING
+        || settings.version == 2
+#endif
+    );
 #ifdef CONFIG_CLIP_UPLOAD_APP
     atomic_set(&app_enabled, settings.enabled);
 #endif
     if (!settings.clock_host[0]) {
         strcpy(settings.clock_host, "time.cloudflare.com"); strcpy(settings.clock_port, "123");
     }
+#ifdef CONFIG_BOA_USER_BINDING
+    publish_recording_origin();
+#endif
     next_auto = k_uptime_get() + 10000;
     atomic_set(&initialized, 1);
     return wifi_diag_register();

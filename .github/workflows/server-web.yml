@@ -1,0 +1,25 @@
+name: Server and Web
+
+on:
+  push:
+    branches: [main, 'boa/roger-integration']
+    paths: ['server/**', 'tools/upload/__init__.py', 'tools/upload/tests/test_dtls_receiver.py', 'scripts/package-boa-server.sh', '.github/workflows/server-web.yml']
+  pull_request:
+    paths: ['server/**', 'tools/upload/__init__.py', 'tools/upload/tests/test_dtls_receiver.py', 'scripts/package-boa-server.sh', '.github/workflows/server-web.yml']
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r server/requirements.txt
+      - run: python -m pytest server/tests server/boa/tests server/storage/tests -q
+      - run: node --test server/web/tests/*.test.mjs
+      - run: bash scripts/package-boa-server.sh

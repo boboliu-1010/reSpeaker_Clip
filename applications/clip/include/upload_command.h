@@ -5,6 +5,11 @@
 #include <stdint.h>
 int upload_command_begin(const char *name, uint8_t type, bool idle,
                          bool uploading, bool pending, bool transferring);
+#ifdef CONFIG_BOA_USER_BINDING
+bool upload_command_binding_active(void);
+/* Called only after earlier device events have drained. */
+bool upload_command_binding_activate(void);
+#endif
 void upload_command_end(void);
 /* Keep the reservation across a successful delayed erase/reboot. */
 void upload_command_defer(void);

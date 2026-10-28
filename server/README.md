@@ -1,74 +1,80 @@
-# Clip 录音接收服务
+# Boa Server + Web
 
-服务端源码独立放在本目录。当前使用可靠文件上传协议＋DTLS 1.2＋UDP，默认端口为
-9527；旧 HTTPS 接收端已移除。设备构建和控制工具仍在 `tools/upload/`。
+一个 Python 服务管理 Web、API、Clip DTLS 接收、用户绑定与音频存储，共用一个持久数据目录。
 
-## 文件
+| 入口 | 默认地址 | 用途 |
+|---|---|---|
+| Web HTTPS | `https://SERVER:9529/` | 网页录音、设备配置、固件管理；`/api/` 同源转交同一后台 |
+| API HTTPS | `https://SERVER:9528/` | App 与业务 API、上传及鉴权下载 |
+| Clip DTLS/UDP | `SERVER:9528` | 设备凭证认证、断点续传、整文件校验 |
 
-| 文件 | 职责 |
+## 安装与启动
+
+从仓库根目录或解压包根目录执行，使用 Python 3.12+。所有 Server 依赖统一锁定在 `server/requirements.txt`：
+
+```sh
+python3 -m venv .venv-boa
+.venv-boa/bin/python -m pip install -r server/requirements.txt
+.venv-boa/bin/python -m server --help
+.venv-boa/bin/python -m server.boa.manage --help
+```
+
+首次登记用户和设备时，凭证只写入指定的私有文件，不输出到终端：
+
+```sh
+.venv-boa/bin/python -m server.boa.manage --data-dir /path/to/persistent-data add-user USER --token-out /private/path/user.token
+.venv-boa/bin/python -m server.boa.manage --data-dir /path/to/persistent-data add-device DEVICE --owner USER --token-out /private/path/device.token
+```
+
+已有部署升级时直接复用原数据目录和原凭证，不重复登记。启动统一服务：
+
+```sh
+.venv-boa/bin/python -m server --data-dir /path/to/persistent-data --host 0.0.0.0 --port 9528 --web-port 9529 --tls-root /path/to/tls
+```
+
+TLS 目录需要 `private/server-chain.pem` 和 `private/server.key`。DTLS 使用 ECDSA P-256 证书，设备须信任对应 CA；HTTPS 证书 SAN 须覆盖访问地址。可使用 `--https-certfile` 与 `--https-keyfile` 为两个 HTTPS 监听指定已有证书，DTLS 仍使用 TLS 目录内的证书。
+
+放通 TCP 9529、TCP 9528 和 UDP 9528。一个进程持有数据目录锁，不使用多个 worker 共用目录。`--web-port 0` 可关闭独立 Web 监听。
+
+本机 HTTP 验证：
+
+```sh
+.venv-boa/bin/python -m server --data-dir /tmp/boa-local-test --host 127.0.0.1 --port 9528 --web-port 9529 --http-only
+```
+
+该模式不启动 DTLS。可信开发网络可显式增加 `--allow-id-login`；ID 仅选择已登记账户，不证明身份，正式多用户环境使用真实用户认证。网页会话不授予开发者权限。
+
+## 源码布局
+
+| 目录或文件 | 职责 |
 |---|---|
-| `dtls_upload_server.py` | 服务入口、连接调度、设备认证与连接接管 |
-| `dtls_server_transport.py` | OpenSSL DTLS 握手、加密数据报收发 |
-| `dtls_upload_protocol.py` | 数据包格式和协议常量 |
-| `dtls_upload_session.py` | OPEN／DATA／QUERY／FINISH 状态处理 |
-| `dtls_upload_store.py` | 窗口接收、持久检查点与完整文件校验 |
-| `resume_store.py` | 共用落盘、恢复、原子检查点及错误类型 |
-| `make_credentials.py` | 隔离测试使用的临时证书生成工具 |
+| `__main__.py` | 统一启动入口 `python -m server` |
+| `boa/` | 用户、设备绑定、同源 Web/API、DTLS 归属、固件库 |
+| `storage/` | 按用户挂载的 HTTP 分片上传、SQLite 索引、Range 下载 |
+| `web/` | 无构建依赖的网页静态资源与 JavaScript 模块 |
+| `dtls_*.py`、`resume_store.py` | 共享 DTLS v3、持久检查点与文件校验核心 |
+| `requirements.txt` | 唯一 Server 依赖安装入口 |
 
-## 启动
+设备 UID 登记、客户端确认、解绑与开发者清理锁见 [业务配置说明](boa/README.md)。部署、systemd 和数据迁移见 [部署说明](boa/DEPLOYMENT.md)。网页操作见 [Web 说明](web/README.md)，HTTP 存储协议见 [存储说明](storage/README.md)。
 
-从仓库根目录运行，使用 Python 3.10+。`requirements.txt` 固定当前验证环境的
-pyOpenSSL 与 cryptography 版本；在独立环境安装，不覆盖系统或现有运行服务：
+## 数据、升级与回退
 
-```sh
-python3 -m venv /path/to/receiver-venv
-/path/to/receiver-venv/bin/python -m pip install -r server/requirements.txt
-```
+数据目录中的 `registry.sqlite3`、`device-configurations.json`、`users/`、`clip/`、`firmware/` 需整体保留；证书、私钥和凭证放在源码与代码包之外。停止旧服务后备份 SQLite 和文件，保留旧代码及虚拟环境，再切换新代码入口。目录整合不会自动移动、删除或重新分配既有数据。
 
-后续命令使用该虚拟环境的 Python。
-依赖需提供 `SSL.DTLS_SERVER_METHOD`、DTLS cookie 回调及密文 MTU 设置接口。
-`--help` 不读取凭据、不启动监听：
+原单用户存储的数据必须由开发者核对归属后迁入已登记用户目录，不能直接当作新的统一数据根目录。设备换用户前必须撤销旧凭证，并明确确认旧录音、Wi-Fi、上传配置和配对已处理；清理锁不能通过重新登记绕过。
+
+`server.dtls_upload_server` 是底层协议测试/维护入口；正常部署统一使用 `python -m server`，不另起独立接收或存储进程抢占端口与数据目录。
+
+## 验证与代码包
 
 ```sh
-python3 -m server.dtls_upload_server --help
-python3 -m server.dtls_upload_server \
-  --root /srv/clip-receiver \
-  --directory /srv/clip-receiver/data \
-  --identities /srv/clip-receiver/private/identities.json \
-  --port 9527
+.venv-boa/bin/python -m pytest server/boa/tests server/storage/tests -q
+.venv-boa/bin/python -m unittest tools.upload.tests.test_dtls_receiver -v
+node --test server/web/tests/*.test.mjs
 ```
 
-`--root` 下需要 `private/server-chain.pem` 和 `private/server.key`。
-`--identities` 指向设备标识到令牌的 JSON 映射。私钥和令牌放在源码目录外，
-不得提交、打印或复制到构建环境。服务端证书必须受设备内置 CA 信任，且覆盖设备
-配置的服务器地址。云网络与防火墙需要允许 **UDP 9527**。
+完整仓库还可运行 `tools/upload/tests` 的固件主机测试。代码包只携带必要的 DTLS 测试辅助文件，不携带固件 SDK 或构建产物；真实 DTLS 用例需要锁定的 pyOpenSSL 依赖，Web HTTP 集成用例需要 Node.js。
 
-数据目录应仅供一个接收进程使用。迁移代码目录时保留原数据、检查点、设备令牌及
-证书；本次源码整理没有更换协议、证书或数据格式。
+从完整仓库执行 `bash scripts/package-boa-server.sh` 生成 `dist/Boa-Server-Web-beta.8.tar.gz` 及 SHA-256。解压后先核对归档 SHA-256，再在包根目录运行 `shasum -a 256 -c MANIFEST.sha256`。`BUILD.json` 标记源码提交及工作区快照；代码包不包含用户数据、录音、固件二进制、证书或凭证。
 
-## 部署与迁移
-
-上述路径仅为通用示例。实际服务器地址、SSH 账户、部署目录和服务名维护在本地
-环境记录中，不写入源码仓库。
-
-仓库目录调整不自动替换运行实例。从旧的单文件部署迁移时，应将整个 `server/` 包复制到部署
-工作目录，例如 `<deployment>/server/`，并从 `<deployment>` 使用
-`python3 -u -m server.dtls_upload_server` 启动。服务的证书、令牌和数据参数保持原值。
-
-## 回归验证
-
-从仓库根目录运行：
-
-```sh
-python3 -m unittest discover -s tools/upload/tests -p 'test_*.py'
-```
-
-其中包含 DTLS 接收、断点续传、连接接管、存储故障以及固件 C 逻辑测试。
-固件主机测试另需 Clang 及对应 SDK fixture；未安装 pyOpenSSL 的环境会跳过真实
-DTLS 网络用例，因此还需在有该依赖的环境执行：
-
-```sh
-python3 -m unittest discover -s tools/upload/tests -p 'test_dtls_receiver.py' -v
-```
-
-协议与固件集成说明见 [DTLS 上传方案](../docs/dtls-upload-core.md)。
+软件测试、打包和固件编译不等于远程部署或真实 Clip 验收。收件验收需要实际上传、完整哈希与鉴权下载；配置确认仅记录客户端读回证据。

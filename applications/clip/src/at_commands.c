@@ -783,6 +783,14 @@ static int cmd_factory_handler(struct at_cmd_ctx *ctx, char *response, size_t le
         return create_json_response(false, "Add 'confirm' or 'yes' to proceed", NULL, response, len);
     }
 
+#ifdef CONFIG_BOA_USER_BINDING
+    /* This explicit reset already erases recordings below. Revoke local upload
+     * provisioning first; failure must stop before any destructive storage work. */
+    int clear_error = upload_runtime_factory_reset();
+    if (clear_error) {
+        return create_json_response(false, "Upload configuration reset failed", NULL, response, len);
+    }
+#endif
     /* Perform factory reset (clear LittleFS config) */
     int err = config_factory_reset();
     if (err) {

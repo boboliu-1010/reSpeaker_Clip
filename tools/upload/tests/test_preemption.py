@@ -28,6 +28,12 @@ class PreemptionTest(unittest.TestCase):
             "\n#endif", 1)[0]
         dispatch = "void clip_event_process" + event_source.split("void clip_event_process", 1)[1].split(
             "static enum clip_event_result execute_transition", 1)[0]
+        from test_baseline_responses import function
+        begin_auto = function(source, 'static int begin_auto(')
+        origin_start = source.index('#ifdef CONFIG_BOA_USER_BINDING\n', source.index('/* RAM-only experiment settings'))
+        origin = source[origin_start:source.index('int upload_runtime_factory_reset(', origin_start)] + '\n#endif\n'
+        storage = function((ROOT/'applications/clip/src/storage.c').read_text(), 'int storage_create_session(')
+        command_wrapper = function(source, 'static int command(struct at_cmd_ctx')
         code = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -36,13 +42,19 @@ class PreemptionTest(unittest.TestCase):
 #include <stdlib.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdio.h>
 #define CONFIG_CLIP_UPLOAD 1
+#define CONFIG_BOA_USER_BINDING 1
+#include "upload_config.h"
 #define CONFIG_USBD_MSC_CLASS 0
 #define IS_ENABLED(x) (x)
 #define ARG_UNUSED(x) (void)(x)
 #define LOG_WRN(...) ((void)0)
 #define LOG_INF(...) ((void)0)
 #define K_NO_WAIT 0
+#define K_FOREVER 0
+#define K_MSEC(n) (n)
+#define LOG_ERR(...) ((void)0)
 #define AT_CMD_TYPE_TEST 0
 #define AT_CMD_TYPE_SET 1
 #define AT_CMD_TYPE_EXEC 2
@@ -65,11 +77,66 @@ static int display_files_total, display_files_done;
 static int state_error, auto_job, auto_paused, activity;
 static int start_job, g_state, clip_ev_msgq, ota_in_progress;
 static bool audio_active, resources_released, inject_start, downloading;
+static bool exercise_origin, start_before_begin;
+static unsigned origin_writes;
+static unsigned spin_locks;
+static const char *expected_binding="0123456789abcdef0123456789abcdef";
+static uint32_t expected_epoch=7;
+static void (*origin_hook)(void);
+static int control_lock, initialized=1, scan_error, failures;
+static int64_t next_auto, deadline;
+static atomic_val_t observed_activity;
+static struct upload_config config={.enabled=1,.binding_id="0123456789abcdef0123456789abcdef",.epoch=7};
+static struct upload_config *configuration=&config;
+struct k_spinlock {int held;};
+typedef int k_spinlock_key_t;
+static k_spinlock_key_t k_spin_lock(struct k_spinlock *m){assert(!m->held);m->held=1;spin_locks++;return 0;}
+static void k_spin_unlock(struct k_spinlock*m,k_spinlock_key_t key){(void)key;assert(m->held);m->held=0;spin_locks--;}
+static void k_mutex_lock(int*m,int timeout){(void)timeout;assert(!spin_locks);assert(!*m && "event thread waits on uploader control_lock while uploader awaits synchronous event");*m=1;}
+static void k_mutex_unlock(int*m){assert(*m);*m=0;}
+static void k_sleep(int ms){(void)ms;}
+static int64_t k_uptime_get(void){return 100000;}
+int upload_config_valid(const struct upload_config*v){return v->enabled;}
+static void*k_calloc(size_t n,size_t size){return calloc(n,size);}
+static void k_free(void*p){free(p);}
+struct candidate {char session[15];uint32_t segment;};
+struct selection {uint32_t first_count,total_count,index;struct candidate first[1];};
+static struct selection *auto_batch;
+static int refill_auto_batch(void){return 0;}
+static void select_candidate(const struct candidate*c){(void)c;}
+static int recording_origin_create(const char*id,const char*binding,uint32_t epoch){
+ assert(exercise_origin&&strlen(id)==14&&!spin_locks);
+ assert(!strcmp(binding,expected_binding)&&epoch==expected_epoch);origin_writes++;
+ if(origin_hook){void(*hook)(void)=origin_hook;origin_hook=NULL;hook();}
+ /* A concurrent publisher cannot change the local snapshot used by fs I/O. */
+ assert(!strcmp(binding,expected_binding)&&epoch==expected_epoch);return 0;
+}
+#define STORAGE_PATH_MAX 128
+#define STORAGE_SESSION_ID_LEN 32
+static bool sd_mounted=true;
+static char current_session_id[32];
+static uint64_t session_bytes_base;
+static int validate_session_id(const char*s){return strlen(s)==14?0:-EINVAL;}
+static int ensure_bucket_directories(const char*s){(void)s;return 0;}
+static int build_session_metadata_path(const char*s,char*p,size_t n){(void)s;(void)p;(void)n;return 0;}
+static int build_marks_path(const char*s,char*p,size_t n){(void)s;(void)p;(void)n;return 0;}
+static int create_marks_file(const char*p){(void)p;return 0;}
+static int create_session_json(const char*p,const char*s,uint8_t c,uint32_t rate,const char*mode){(void)p;(void)s;(void)c;(void)rate;(void)mode;assert(origin_writes==1);return 0;}
+static int storage_create_session(const char*,uint8_t,uint32_t,const char*);
+struct at_cmd_ctx {int mutation;};
+static int command_locked(struct at_cmd_ctx*ctx,char*out,size_t n){
+ (void)out;(void)n;assert(control_lock);
+ if(ctx->mutation==1){strcpy(config.binding_id,"1123456789abcdef0123456789abcdef");config.epoch=8;}
+ else if(ctx->mutation==2){config.binding_id[0]=0;config.epoch=0;}
+ else if(ctx->mutation==3){return -EIO;}
+ return 0;
+}
+
 static int interrupts, record_starts, started_jobs;
 static enum clip_event_result recording_result = CLIP_EVENT_OK;
 static char ssid[33] = "fixture", host[96] = "receiver", session[32];
 static unsigned int segment;
-enum { PREPARING = 1 };
+enum { IDLE, PREPARING, FAILED, CANCELLED };
 static struct clip_event_item queue[4];
 static unsigned int queued, consumed;
 static uint8_t transition_table[3][CLIP_EVENT_COUNT];
@@ -95,6 +162,7 @@ static enum clip_event_result execute_transition(enum clip_event event,
                                                  enum clip_state from, enum clip_state to) {
     assert(event == CLIP_EVENT_START && from == CLIP_STATE_IDLE && to == CLIP_STATE_RECORDING);
     assert(resources_released && !active);
+    if(exercise_origin){assert(!storage_create_session("20261028000000",1,16000,"normal"));}
     record_starts++;
     if (recording_result == CLIP_EVENT_OK) audio_active = true;
     return recording_result;
@@ -106,9 +174,19 @@ static bool upload_ota_event(enum clip_event event, enum clip_state state,
 '''
         policy = (ROOT / 'applications/clip/src/upload_command.c').read_text()
         code += '\n'.join(line for line in policy.splitlines() if not line.startswith('#include'))
-        code += '\n' + cancel + getters + gate + valid + start + dispatch
+        code += '\n#define settings (*configuration)\n' + cancel + getters + gate + valid + start + dispatch + begin_auto + origin + storage + command_wrapper
         code += r'''
+static void replace_binding_during_origin(void){
+ struct at_cmd_ctx ctx={.mutation=1};char out[1];assert(!command(&ctx,out,sizeof(out)));
+}
 static int clip_post_event_sync(enum clip_event event, struct clip_event_result_info *info) {
+    if(exercise_origin){
+        assert(control_lock);
+        if(event==CLIP_EVENT_UPLOAD_BEGIN&&start_before_begin){queue[queued++]=(struct clip_event_item){CLIP_EVENT_START,NULL,NULL};}
+        queue[queued++]=(struct clip_event_item){event,info,NULL};
+        if(event==CLIP_EVENT_UPLOAD_BEGIN&&!start_before_begin){queue[queued++]=(struct clip_event_item){CLIP_EVENT_START,NULL,NULL};}
+        clip_event_process();return 0;
+    }
     assert(upload_runtime_event(event, info, g_state == CLIP_STATE_IDLE));
     if (inject_start && event == CLIP_EVENT_UPLOAD_BEGIN) {
         struct clip_event_result_info recording;
@@ -130,6 +208,53 @@ int main(int argc, char **argv) {
     memset(transition_table, TRANS_INVALID, sizeof(transition_table));
     transition_table[CLIP_STATE_IDLE][CLIP_EVENT_START] = CLIP_STATE_RECORDING;
     struct clip_event_result_info info;
+    if(!strcmp(argv[1],"snapshot")){
+        exercise_origin=true;
+        struct at_cmd_ctx ctx={0};char out[1];initialized=0;
+        assert(!command(&ctx,out,sizeof(out)));
+        assert(upload_runtime_recording_origin("20261028000000")==-EAGAIN&&!origin_writes);
+        initialized=1;assert(!command(&ctx,out,sizeof(out)));
+        k_mutex_lock(&control_lock,K_FOREVER);
+        assert(!upload_runtime_recording_origin("20261028000000"));
+        k_mutex_unlock(&control_lock);
+        origin_hook=replace_binding_during_origin;
+        assert(!upload_runtime_recording_origin("20261028000001"));
+        expected_binding="1123456789abcdef0123456789abcdef";expected_epoch=8;
+        assert(!upload_runtime_recording_origin("20261028000002"));
+        ctx.mutation=3;assert(command(&ctx,out,sizeof(out))==-EIO);
+        assert(!upload_runtime_recording_origin("20261028000003"));
+        assert(!upload_command_begin("BINDCLR",AT_CMD_TYPE_SET,true,false,false,false));
+        assert(upload_command_binding_activate());ctx.mutation=2;
+        assert(!command(&ctx,out,sizeof(out))&&upload_command_binding_active());
+        expected_binding="";expected_epoch=0;
+        assert(!upload_runtime_recording_origin("20261028000004"));
+        upload_command_end();assert(!upload_command_binding_active()&&!spin_locks&&!control_lock);return 0;
+    }
+    if(!strncmp(argv[1],"auto-",5)){
+        exercise_origin=resources_released=true;start_before_begin=!strcmp(argv[1],"auto-begin-record");
+        struct at_cmd_ctx ctx={0};char out[1];assert(!command(&ctx,out,sizeof(out)));
+        assert(!begin_auto());
+        assert(record_starts==1&&origin_writes==1&&audio_active&&!active&&!record_pending&&!control_lock);
+        assert(g_state==CLIP_STATE_RECORDING);return 0;
+    }
+    if (!strcmp(argv[1], "binding")) {
+        assert(!upload_command_begin("BINDCFG",AT_CMD_TYPE_SET,true,false,false,false));
+        /* Before ordered validation, an already queued START retains priority. */
+        assert(!upload_runtime_event(CLIP_EVENT_START,&info,true));
+        assert(upload_runtime_event(CLIP_EVENT_BIND_BEGIN,&info,false));
+        assert(info.result==CLIP_EVENT_BUSY);
+        upload_command_end();
+        assert(!upload_command_begin("BINDCFG",AT_CMD_TYPE_SET,true,false,false,false));
+        assert(upload_runtime_event(CLIP_EVENT_BIND_BEGIN,&info,true));
+        assert(info.result==CLIP_EVENT_OK);
+        /* A START queued after successful idle validation must wait. */
+        assert(upload_runtime_event(CLIP_EVENT_START,&info,true));
+        assert(info.result==CLIP_EVENT_BUSY&&!active&&!record_pending&&!cancelled);
+        upload_command_end();
+        assert(!upload_runtime_event(CLIP_EVENT_START,&info,true));
+        assert(upload_command_begin("BINDCFG",AT_CMD_TYPE_SET,false,false,false,false)==-EBUSY);
+        return 0;
+    }
     assert(!upload_command_begin("DELETE",AT_CMD_TYPE_SET,true,false,false,false));
     assert(upload_runtime_event(CLIP_EVENT_UPLOAD_BEGIN,&info,true));
     assert(info.result==CLIP_EVENT_BUSY&&!active);
@@ -194,7 +319,7 @@ int main(int argc, char **argv) {
         cls.executable = root / "test"
         try:
             subprocess.run(["clang", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-fsanitize=address,undefined", str(root / "test.c"),
+                            "-fsanitize=address,undefined", "-Wno-unused-function", "-Wno-unused-variable", "-I"+str(ROOT/"applications/clip/include"), str(root / "test.c"),
                             "-o", str(cls.executable)], check=True)
         except BaseException:
             cls.directory.cleanup()
@@ -203,6 +328,18 @@ int main(int argc, char **argv) {
     @classmethod
     def tearDownClass(cls):
         cls.directory.cleanup()
+
+    def test_provenance_snapshot_is_ready_coherent_and_published_before_admission_release(self):
+        subprocess.run([str(self.executable), "snapshot"], check=True)
+
+    def test_auto_upload_empty_scan_replays_recording_without_control_lock_cycle(self):
+        subprocess.run([str(self.executable), "auto-end-record"], check=True)
+
+    def test_recording_before_sync_upload_begin_does_not_wait_on_uploader_control_lock(self):
+        subprocess.run([str(self.executable), "auto-begin-record"], check=True)
+
+    def test_binding_reservation_excludes_recording_without_cancel(self):
+        subprocess.run([str(self.executable), "binding"], check=True)
 
     def test_record_request_before_worker_start_survives(self):
         subprocess.run([str(self.executable), "startup-race"], check=True)

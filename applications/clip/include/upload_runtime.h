@@ -5,6 +5,12 @@
 #include <zephyr/kernel.h>
 #include "clip_event.h"
 int upload_runtime_register(void);
+#ifdef CONFIG_BOA_USER_BINDING
+/* Record an immutable origin before audio is created; never relabel old files. */
+int upload_runtime_recording_origin(const char *session_id);
+/* Explicit FACTORY only: persistently clear provisioning before SD reset. */
+int upload_runtime_factory_reset(void);
+#endif
 bool upload_runtime_active(void);
 /* Whole job's completed-file percentage, or -1 when no upload batch is active.
  * Read-only; never touches storage/network or wakes the display. */

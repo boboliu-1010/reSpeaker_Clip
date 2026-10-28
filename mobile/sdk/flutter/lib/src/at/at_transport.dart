@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../ble/mtu_manager.dart';
 import '../utils/sdk_log.dart';
 import 'json_object_framer.dart';
+import 'at_command_redaction.dart';
 
 /// AT(JSON) protocol transport over BLE (GATT) for SenseCraft Voice Clip
 /// devices.
@@ -180,7 +181,7 @@ class AtTransport {
         _logAtWriteTiming(atCommand, writeSw.elapsed, withoutResponse);
         final replySw = Stopwatch()..start();
         final reply = await completer.future.timeout(timeout, onTimeout: () {
-          throw TimeoutException('AT command timeout: $atCommand', timeout);
+          throw TimeoutException('AT command timeout: ${redactAtCommand(atCommand)}', timeout);
         });
         _logAtReplyTiming(atCommand, replySw.elapsed);
         return reply;
@@ -226,9 +227,7 @@ class AtTransport {
   }
 
   static String _commandForLog(String atCommand) {
-    final trimmed = atCommand.trim();
-    if (trimmed.length <= 48) return trimmed;
-    return '${trimmed.substring(0, 48)}...';
+    return redactAtCommand(atCommand);
   }
 
   static void _logAtWriteTiming(

@@ -1,0 +1,420 @@
+{
+  "contract_version": "1.0.0-draft.3",
+  "example_only": true,
+  "notes": [
+    "All IDs, images, credentials and responses are illustrative; firmware endpoints are not deployed.",
+    "Cases are not an executable sequence; cancel and resolve demonstrate alternative states.",
+    "Image hashes and versions do not describe a real firmware artifact."
+  ],
+  "server_endpoint": "https://100.58.19.213:9528",
+  "api_prefix": "/api/boa/v1/firmware",
+  "capabilities_url": "https://100.58.19.213:9528/api/boa/v1/firmware/capabilities",
+  "cases": [
+    {
+      "name": "capabilities",
+      "request": {
+        "method": "GET",
+        "path": "/api/boa/v1/firmware/capabilities",
+        "headers": {
+          "Authorization": "Bearer <user-token>"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "server_id": "11111111-1111-1111-1111-111111111111",
+          "protocol_version": "1.0.0-draft.3",
+          "principal_id": "22222222-2222-2222-2222-222222222222",
+          "role": "user",
+          "limits": {
+            "max_package_bytes": 33554432,
+            "max_unpacked_bytes": 67108864,
+            "max_archive_entries": 32,
+            "max_images": 2,
+            "firmware_quota_bytes": 2147483648
+          },
+          "policy_revisions": [
+            {
+              "profile_id": "44444444-4444-4444-4444-444444444444",
+              "policy_revision": "55555555-5555-5555-5555-555555555555"
+            }
+          ],
+          "user_id": "22222222-2222-2222-2222-222222222222"
+        }
+      }
+    },
+    {
+      "name": "authorize_upgrade",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/upgrade-authorizations",
+        "headers": {
+          "Authorization": "Bearer <user-token>",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        },
+        "body": {
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_ref": "33333333-3333-3333-3333-333333333333",
+          "release_id": "77777777-7777-7777-7777-777777777777",
+          "expected_running_images": [
+            {
+              "image_index": 0,
+              "version": "example-before",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "confirmed": true
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "upgrade_id": "88888888-8888-8888-8888-888888888888",
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "principal_id": "22222222-2222-2222-2222-222222222222",
+          "device_ref": "33333333-3333-3333-3333-333333333333",
+          "release_id": "77777777-7777-7777-7777-777777777777",
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "server_id": "11111111-1111-1111-1111-111111111111",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "revision": 1,
+          "authorization_state": "issued",
+          "operation_state": "reserved",
+          "lease_state": "reserved",
+          "expected_running_images": [
+            {
+              "image_index": 0,
+              "version": "example-before",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "confirmed": true
+            }
+          ],
+          "start_before": "2026-10-22T08:00:00Z",
+          "permit": null,
+          "reported_phase": null,
+          "last_event_sequence": 0,
+          "outcome": null,
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
+        },
+        "headers": {
+          "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:1\""
+        }
+      }
+    },
+    {
+      "name": "start_is_separate_from_events",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/start",
+        "headers": {
+          "Authorization": "Bearer <user-token>",
+          "Content-Type": "application/json",
+          "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:1\"",
+          "Idempotency-Key": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        },
+        "body": {
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "preflight": {
+            "observed_at": "2026-10-22T07:30:55Z",
+            "recording_state": "idle",
+            "transfer_active": false,
+            "upload_active": false,
+            "ota_active": false,
+            "battery_percent": 80,
+            "running_images": [
+              {
+                "image_index": 0,
+                "version": "example-before",
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                "confirmed": true
+              }
+            ],
+            "package_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "local_device_lock_acquired": true
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "upgrade_id": "88888888-8888-8888-8888-888888888888",
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "principal_id": "22222222-2222-2222-2222-222222222222",
+          "device_ref": "33333333-3333-3333-3333-333333333333",
+          "release_id": "77777777-7777-7777-7777-777777777777",
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "server_id": "11111111-1111-1111-1111-111111111111",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "revision": 2,
+          "authorization_state": "consumed",
+          "operation_state": "active",
+          "lease_state": "held",
+          "expected_running_images": [
+            {
+              "image_index": 0,
+              "version": "example-before",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "confirmed": true
+            }
+          ],
+          "start_before": "2026-10-22T08:00:00Z",
+          "permit": {
+            "permit_id": "99999999-9999-9999-9999-999999999999",
+            "upgrade_id": "88888888-8888-8888-8888-888888888888",
+            "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "principal_id": "22222222-2222-2222-2222-222222222222",
+            "device_ref": "33333333-3333-3333-3333-333333333333",
+            "release_id": "77777777-7777-7777-7777-777777777777",
+            "package_id": "66666666-6666-6666-6666-666666666666",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "policy_revision": "55555555-5555-5555-5555-555555555555",
+            "issued_at": "2026-10-22T07:31:00Z",
+            "constraints": {
+              "manual_only": true,
+              "erase_app_settings": false
+            }
+          },
+          "reported_phase": null,
+          "last_event_sequence": 0,
+          "outcome": null,
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
+        },
+        "headers": {
+          "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:2\""
+        }
+      }
+    },
+    {
+      "name": "cannot_cancel_after_permit",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/cancel",
+        "headers": {
+          "Authorization": "Bearer <user-token>",
+          "Content-Type": "application/json",
+          "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:2\"",
+          "Idempotency-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        },
+        "body": {
+          "reason": "user requested cancel"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "cancel_not_safe",
+            "message": "Start permit has already been issued. Reconcile the device.",
+            "retryable": false,
+            "request_id": "example-request-4"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_before_start_independent_case",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/cancel",
+        "headers": {
+          "Authorization": "Bearer <user-token>",
+          "Content-Type": "application/json",
+          "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:1\"",
+          "Idempotency-Key": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+        },
+        "body": {
+          "reason": "cancelled before any start permit"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "upgrade_id": "88888888-8888-8888-8888-888888888888",
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "principal_id": "22222222-2222-2222-2222-222222222222",
+          "device_ref": "33333333-3333-3333-3333-333333333333",
+          "release_id": "77777777-7777-7777-7777-777777777777",
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "server_id": "11111111-1111-1111-1111-111111111111",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "revision": 2,
+          "authorization_state": "cancelled",
+          "operation_state": "cancelled",
+          "lease_state": "released",
+          "expected_running_images": [
+            {
+              "image_index": 0,
+              "version": "example-before",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "confirmed": true
+            }
+          ],
+          "start_before": "2026-10-22T08:00:00Z",
+          "permit": null,
+          "reported_phase": null,
+          "last_event_sequence": 0,
+          "outcome": null,
+          "result_evidence": null,
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
+        },
+        "headers": {
+          "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:2\""
+        }
+      }
+    },
+    {
+      "name": "developer_resolves_unknown_result_independent_case",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/upgrades/88888888-8888-8888-8888-888888888888/resolve",
+        "headers": {
+          "Authorization": "Bearer <developer-token>",
+          "Content-Type": "application/json",
+          "If-Match": "\"upgrade:88888888-8888-8888-8888-888888888888:9\"",
+          "Idempotency-Key": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+        },
+        "body": {
+          "reason": "Observed expected confirmed image and idle device after reconnect",
+          "resolution_outcome": "succeeded",
+          "evidence": {
+            "observed_at": "2026-10-22T07:45:00Z",
+            "device_idle": true,
+            "ota_active": false,
+            "running_images": [
+              {
+                "image_index": 0,
+                "version": "example-target",
+                "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "confirmed": true
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "upgrade_id": "88888888-8888-8888-8888-888888888888",
+          "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "principal_id": "22222222-2222-2222-2222-222222222222",
+          "device_ref": "33333333-3333-3333-3333-333333333333",
+          "release_id": "77777777-7777-7777-7777-777777777777",
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "server_id": "11111111-1111-1111-1111-111111111111",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "revision": 10,
+          "authorization_state": "consumed",
+          "operation_state": "completed",
+          "lease_state": "released",
+          "expected_running_images": [
+            {
+              "image_index": 0,
+              "version": "example-before",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "confirmed": true
+            }
+          ],
+          "start_before": "2026-10-22T08:00:00Z",
+          "permit": {
+            "permit_id": "99999999-9999-9999-9999-999999999999",
+            "upgrade_id": "88888888-8888-8888-8888-888888888888",
+            "operation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "principal_id": "22222222-2222-2222-2222-222222222222",
+            "device_ref": "33333333-3333-3333-3333-333333333333",
+            "release_id": "77777777-7777-7777-7777-777777777777",
+            "package_id": "66666666-6666-6666-6666-666666666666",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "policy_revision": "55555555-5555-5555-5555-555555555555",
+            "issued_at": "2026-10-22T07:31:00Z",
+            "constraints": {
+              "manual_only": true,
+              "erase_app_settings": false
+            }
+          },
+          "reported_phase": null,
+          "last_event_sequence": 0,
+          "outcome": "succeeded",
+          "result_evidence": {
+            "source": "app_report",
+            "resolved_by": "example-developer",
+            "running_images": [
+              {
+                "image_index": 0,
+                "version": "example-target",
+                "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "confirmed": true
+              }
+            ],
+            "device_idle": true
+          },
+          "owner_user_id": "22222222-2222-2222-2222-222222222222"
+        },
+        "headers": {
+          "ETag": "\"upgrade:88888888-8888-8888-8888-888888888888:10\""
+        }
+      }
+    },
+    {
+      "name": "user_cannot_read_another_users_upgrade",
+      "request": {
+        "method": "GET",
+        "path": "/api/boa/v1/firmware/upgrades/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "headers": {
+          "Authorization": "Bearer <user-token>"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "error": {
+            "code": "not_found",
+            "message": "Resource not found",
+            "retryable": false,
+            "request_id": "example-owner-check"
+          }
+        }
+      }
+    },
+    {
+      "name": "user_cannot_publish_firmware",
+      "request": {
+        "method": "POST",
+        "path": "/api/boa/v1/firmware/releases",
+        "headers": {
+          "Authorization": "Bearer <user-token>",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        },
+        "body": {
+          "package_id": "66666666-6666-6666-6666-666666666666",
+          "channel": "beta",
+          "profile_id": "44444444-4444-4444-4444-444444444444",
+          "policy_revision": "55555555-5555-5555-5555-555555555555",
+          "notes": "Illustrative only"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "forbidden",
+            "message": "Developer permission required",
+            "retryable": false,
+            "request_id": "example-role-check"
+          }
+        }
+      }
+    }
+  ]
+}

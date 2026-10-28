@@ -9,6 +9,12 @@ ROOT = Path(__file__).resolve().parents[3]
 
 class OtaAdmissionTest(unittest.TestCase):
     def test_dfu_lifecycle_and_conflicting_operations(self):
+        self.check_lifecycle(False)
+
+    def test_boa_binding_shares_roger_native_dfu_admission(self):
+        self.check_lifecycle(True)
+
+    def check_lifecycle(self, boa):
         source = (ROOT / 'applications/clip/src/clip_event.c').read_text()
         helper = source.split('static bool upload_ota_event', 1)[1].split('\n#endif', 1)[0]
         callback = source.split('static enum mgmt_cb_return mcumgr_dfu_cb(', 1)[1].split(
@@ -120,10 +126,24 @@ int main(void) {
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==10);
  assert(g_state==CLIP_STATE_IDLE && admission==AVAILABLE);
  assert(activity_refreshes==0);
+#ifdef CONFIG_BOA_USER_BINDING
+ /* Binding uses Roger's reservation, without owning or releasing native OTA. */
+ assert(!upload_command_begin("BINDCFG",AT_CMD_TYPE_SET,true,false,false,false));
+ assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==10);
+ assert(upload_command_binding_activate());
+ assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==10);
+ assert(g_state==CLIP_STATE_IDLE && upload_command_binding_active());
+ upload_command_end();
+#endif
  assert(feed(MGMT_EVT_OP_IMG_MGMT_DFU_STARTED,NULL,0)==0);
  assert(g_state==CLIP_STATE_OTA && admission==OTA && ota_in_progress);
  assert(activity_refreshes==1);
  assert(!upload_command_claim_upload());
+#ifdef CONFIG_BOA_USER_BINDING
+ assert(upload_command_begin("BINDCFG",AT_CMD_TYPE_SET,true,false,false,false)==-EBUSY);
+ assert(upload_command_begin("BINDCLR",AT_CMD_TYPE_SET,true,false,false,false)==-EBUSY);
+ assert(!upload_command_binding_active());
+#endif
  assert(upload_command_begin("START",AT_CMD_TYPE_EXEC,false,false,false,false)==-EBUSY);
  assert(upload_command_begin("FORMAT",AT_CMD_TYPE_EXEC,false,false,false,false)==-EBUSY);
  assert(upload_command_begin("VERSION",AT_CMD_TYPE_READ,false,false,false,false)==0);
@@ -157,7 +177,7 @@ int main(void) {
 '''
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
-            (path / 'test.c').write_text(code)
+            (path / 'test.c').write_text(('#define CONFIG_BOA_USER_BINDING 1\n' if boa else '') + code)
             subprocess.run(['clang', '-std=c11', '-fsanitize=address,undefined',
                             str(path / 'test.c'), '-o', str(path / 'test')], check=True,
                            capture_output=True, text=True)

@@ -1,0 +1,19 @@
+[Unit]
+Description=Boa Server Web API and Clip DTLS
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/boa-voice/current
+ExecStart=%h/apps/boa-voice/venv/bin/python -m server --data-dir %h/.local/share/boa-server --host 0.0.0.0 --port 9528 --web-port 9529 --tls-root %h/.config/boa-server/tls
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0077
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

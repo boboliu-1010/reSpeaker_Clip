@@ -3,6 +3,21 @@
 Entry point for all reSpeaker Clip documentation. English docs are canonical;
 the only maintained translation is `tests/clip/README_zh.md`.
 
+## Boa Voice integration
+
+Current firmware development is based on Roger's DTLS branch. Boa business API, per-user storage and Web live in the unified Server tree:
+
+- [Boa integration and local startup](../README-integration.md)
+- [Product overview](product/boa-voice-overview.md), [desktop guide](../README-desktop.md)
+- [Roger baseline and optional Boa extensions](contracts/roger-base-extension-v1.md)
+- [Server installation](../server/boa/README.md), [Web guide](../server/web/README.md)
+- [Current product designs](design/README.md), including binding, desktop Wi-Fi and Web sessions
+- [Storage HTTP contract](contracts/storage-http-v1.md), [schema](contracts/storage-http-v1.schema.json), [examples](contracts/examples/storage-http-v1.json)
+- [AI HTTP proposal](contracts/ai-http-v1.md), [schema](contracts/ai-http-v1.schema.json), [examples](contracts/examples/ai-http-v1.json): future model endpoints and persistent AI jobs
+- [Historical ingest/processing proposal](contracts/clip-ingest-app-server-bridge.md), [device compatibility contract](contracts/clip-device-v1.md): read their dated scope before using as implementation requirements
+
+The firmware protocol sources below remain authoritative for current wire behavior. Product designs do not establish deployment or physical-device acceptance.
+
 ## Where do I start?
 
 | I want to... | Go to |

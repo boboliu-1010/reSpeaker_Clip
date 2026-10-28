@@ -633,4 +633,13 @@ config CLIP_WIFI_DIAG
 	  Cache software network counters around station setup and TLS connect.
 	  USB NETDIAG reads only the cache; no hardware statistics RPC is used.
 
+config BOA_USER_BINDING
+	bool "Boa device UID and atomic user binding provisioning"
+	depends on CLIP_UPLOAD_APP
+	select HWINFO
+	default n
+	help
+	  Enable full hardware UID and versioned binding commands for the Boa
+	  profile. Baseline upload settings and AT behavior remain compatible.
+
 endif # CLIP

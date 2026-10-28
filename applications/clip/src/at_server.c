@@ -286,8 +286,15 @@ static void process_command(struct at_queue_item *item)
             /* Call handler */
 #ifdef CONFIG_CLIP_UPLOAD
             if (upload_runtime_command_begin(cmd_name, cmd_type)) {
-                create_json_response(false, "Busy: upload or conflicting device operation", NULL,
-                                     at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
+#ifdef CONFIG_BOA_USER_BINDING
+                if (!strcmp(cmd_name, "BINDCFG") || !strcmp(cmd_name, "BINDCLR")) {
+                    snprintf(at_ctx.response_buffer, sizeof(at_ctx.response_buffer), "{\"ok\":false,\"error\":-16,\"msg\":\"Busy\"}\n");
+                } else
+#endif
+                {
+                    create_json_response(false, "Busy: upload or conflicting device operation", NULL,
+                                         at_ctx.response_buffer, sizeof(at_ctx.response_buffer));
+                }
                 SEND_RESPONSE();
                 return;
             }

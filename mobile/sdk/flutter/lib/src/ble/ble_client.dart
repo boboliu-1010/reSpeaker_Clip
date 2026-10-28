@@ -24,6 +24,7 @@ class SenseCraftVoiceConnection {
   final Stream<int>? batteryLevelStream;
 
   final BluetoothCharacteristic? _batteryCharacteristic;
+  AtTransport? _at;
 
   SenseCraftVoiceConnection({
     required this.device,
@@ -37,7 +38,7 @@ class SenseCraftVoiceConnection {
 
   /// Build an [AtTransport] for this live BLE link.
   AtTransport createAtTransport() {
-    return AtTransport(
+    return _at ??= AtTransport(
       commandRx: commandRx,
       responseTx: responseTx,
       fileData: fileData,
@@ -89,26 +90,7 @@ class SenseCraftVoiceClient {
       throw StateError('Bluetooth permissions not granted');
     }
 
-    // iOS: adapterState often starts "unknown"; wait for "on" before scan.
-    if (Platform.isIOS) {
-      try {
-        final state = await FlutterBluePlus.adapterState
-            .where((s) =>
-                s == BluetoothAdapterState.on ||
-                s == BluetoothAdapterState.unauthorized)
-            .first
-            .timeout(const Duration(seconds: 15));
-        if (state == BluetoothAdapterState.unauthorized) {
-          throw StateError('Bluetooth permission denied');
-        }
-        SdkLog.i('SenseCraftVoiceClient: iOS adapter ready (on)');
-      } on TimeoutException {
-        SdkLog.w(
-          'SenseCraftVoiceClient: iOS adapter state timeout; '
-          'attempting scan anyway',
-        );
-      }
-    }
+    await _waitForAppleAdapter();
 
     try {
       await FlutterBluePlus.stopScan();
@@ -134,6 +116,32 @@ class SenseCraftVoiceClient {
     );
   }
 
+  Future<void> _waitForAppleAdapter() async {
+    // CoreBluetooth initializes asynchronously on both iOS and macOS.
+    // Both discovery and direct reconnect wait for a settled adapter state.
+    if (Platform.isIOS || Platform.isMacOS) {
+      final state = await FlutterBluePlus.adapterState
+          .where((s) =>
+              s != BluetoothAdapterState.unknown &&
+              s != BluetoothAdapterState.turningOn &&
+              s != BluetoothAdapterState.turningOff)
+          .first
+          .timeout(const Duration(seconds: 15), onTimeout: () {
+        throw StateError('Bluetooth initialization timed out; retry');
+      });
+      if (state != BluetoothAdapterState.on) {
+        throw StateError(switch (state) {
+          BluetoothAdapterState.unauthorized => 'Bluetooth permission denied',
+          BluetoothAdapterState.off =>
+            'Bluetooth is off; turn it on in Settings',
+          _ => 'Bluetooth is unavailable on this device',
+        });
+      }
+      SdkLog.i(
+          'SenseCraftVoiceClient: ${Platform.operatingSystem} adapter ready (on)');
+    }
+  }
+
   Future<void> stopScan() async {
     await FlutterBluePlus.stopScan();
   }
@@ -150,25 +158,13 @@ class SenseCraftVoiceClient {
         'SenseCraftVoiceClient.connectByDeviceId: '
         'attempting direct connect to $deviceId',
       );
-      // Android: mtu:null — do not requestMtu(512) before LESC pairing.
-      // Early MTU negotiation can surface an extra system pairing UI on Huawei.
-      await device.connect(mtu: Platform.isAndroid ? null : 512);
-      await device.connectionState
-          .where((s) => s == BluetoothConnectionState.connected)
-          .first
-          .timeout(const Duration(seconds: 8));
-      return _buildConnection(device);
+      return await _connectDevice(device);
     } catch (e) {
       SdkLog.w(
         'SenseCraftVoiceClient.connectByDeviceId failed',
         e,
         StackTrace.current,
       );
-      if (device != null) {
-        try {
-          await device.disconnect();
-        } catch (_) {}
-      }
       return null;
     }
   }
@@ -201,14 +197,31 @@ class SenseCraftVoiceClient {
     final device = result.device;
     SdkLog.i('Connecting to ${device.remoteId} ${device.platformName}');
 
-    // Android: skip fbp's default post-connect requestMtu(512). Bond first,
-    // then requestHighMtu(185) in [_buildConnectionAttempt].
-    await device.connect(mtu: Platform.isAndroid ? null : 512);
-    await device.connectionState
-        .where((s) => s == BluetoothConnectionState.connected)
-        .first;
+    return _connectDevice(device);
+  }
 
-    return _buildConnection(device);
+  Future<SenseCraftVoiceConnection> _connectDevice(
+      BluetoothDevice device) async {
+    try {
+      await _waitForAppleAdapter();
+      // Bond before requesting MTU on Android. CoreBluetooth negotiates its
+      // own MTU on Apple platforms; requestHighMtu is intentionally a no-op.
+      await device.connect(mtu: null);
+      await device.connectionState
+          .where((s) => s == BluetoothConnectionState.connected)
+          .first
+          .timeout(const Duration(seconds: 8));
+      return await _buildConnection(device);
+    } catch (e, st) {
+      SdkLog.w('BLE Clip connection setup failed; closing native link', e, st);
+      try {
+        await device.disconnect(queue: false, timeout: 5);
+      } catch (cleanupError, cleanupStack) {
+        SdkLog.w(
+            'BLE Clip failed-link cleanup failed', cleanupError, cleanupStack);
+      }
+      Error.throwWithStackTrace(e, st);
+    }
   }
 
   /// Connect to a scan result and verify the AT channel with `AT+GSTAT`.
@@ -274,41 +287,49 @@ class SenseCraftVoiceClient {
     BluetoothDevice device,
   ) async {
     final mtuManager = MtuManager(device);
-    await mtuManager.startListening();
+    var ready = false;
+    try {
+      await mtuManager.startListening();
 
-    Object? lastError;
-    StackTrace? lastStack;
-    for (var pass = 1; pass <= 2; pass++) {
-      // Tracks whether *this* attempt created a brand-new bond. If so, a
-      // follow-up GATT hiccup must NOT trigger removeBond+createBond — that
-      // would pop a *second* system pairing dialog for what is usually just a
-      // transient GATT 133. We only repair a genuinely *stale* bond.
-      final freshBond = _FreshBondFlag();
-      try {
-        return await _buildConnectionAttempt(device, mtuManager, freshBond);
-      } catch (e, st) {
-        lastError = e;
-        lastStack = st;
-        if (!Platform.isAndroid ||
-            pass >= 2 ||
-            freshBond.value ||
-            !_looksLikeAndroidAuthFailure(e)) {
-          Error.throwWithStackTrace(e, st);
+      Object? lastError;
+      StackTrace? lastStack;
+      for (var pass = 1; pass <= 2; pass++) {
+        // Tracks whether *this* attempt created a brand-new bond. If so, a
+        // follow-up GATT hiccup must NOT trigger removeBond+createBond — that
+        // would pop a *second* system pairing dialog for what is usually just a
+        // transient GATT 133. We only repair a genuinely *stale* bond.
+        final freshBond = _FreshBondFlag();
+        try {
+          final conn =
+              await _buildConnectionAttempt(device, mtuManager, freshBond);
+          ready = true;
+          return conn;
+        } catch (e, st) {
+          lastError = e;
+          lastStack = st;
+          if (!Platform.isAndroid ||
+              pass >= 2 ||
+              freshBond.value ||
+              !_looksLikeAndroidAuthFailure(e)) {
+            Error.throwWithStackTrace(e, st);
+          }
+          SdkLog.w(
+            'BLE bond: Clip GATT auth/encryption failed with existing bond; '
+            'repairing stale bond before retry (pass $pass)',
+            e,
+            st,
+          );
+          await _repairAndroidBond(device);
         }
-        SdkLog.w(
-          'BLE bond: Clip GATT auth/encryption failed with existing bond; '
-          'repairing stale bond before retry (pass $pass)',
-          e,
-          st,
-        );
-        await _repairAndroidBond(device);
       }
-    }
 
-    Error.throwWithStackTrace(
-      lastError ?? StateError('BLE Clip connection setup failed'),
-      lastStack ?? StackTrace.current,
-    );
+      Error.throwWithStackTrace(
+        lastError ?? StateError('BLE Clip connection setup failed'),
+        lastStack ?? StackTrace.current,
+      );
+    } finally {
+      if (!ready) await mtuManager.dispose();
+    }
   }
 
   Future<SenseCraftVoiceConnection> _buildConnectionAttempt(
@@ -323,6 +344,7 @@ class SenseCraftVoiceClient {
     // Conservative MTU: very large MTU causes link drops on some firmwares.
     await mtuManager.requestHighMtu();
 
+    SdkLog.i('BLE Clip: discovering GATT services');
     final services = await device.discoverServices();
     BluetoothCharacteristic? cmd;
     BluetoothCharacteristic? resp;
@@ -353,7 +375,9 @@ class SenseCraftVoiceClient {
     if (Platform.isAndroid) {
       await Future<void>.delayed(const Duration(milliseconds: 150));
     }
+    SdkLog.i('BLE Clip: enabling encrypted response notifications');
     await _setNotifyWithRetry(resp, true, label: 'responseTx');
+    SdkLog.i('BLE Clip: enabling encrypted file notifications');
     await _setNotifyWithRetry(file, true, label: 'fileData');
     await _requestAndroidHighConnectionPriority(device);
 
@@ -753,7 +777,7 @@ Future<void> _setNotifyWithRetry(
   int maxAttempts = 3,
 }) async {
   Object? lastError;
-  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (var attempt = 1;; attempt++) {
     try {
       await characteristic.setNotifyValue(enable);
       if (attempt > 1) {
@@ -764,17 +788,28 @@ Future<void> _setNotifyWithRetry(
       return;
     } catch (e, st) {
       lastError = e;
-      if (attempt >= maxAttempts) break;
+      // Encrypted CCCD writes can race CoreBluetooth's system pairing UI.
+      // The old 200/400ms retries could all expire before pairing completed.
+      // Only these ATT security errors receive a longer, bounded retry window.
+      final pairingPending = enable &&
+          (Platform.isMacOS || Platform.isIOS) &&
+          characteristic.device.isConnected &&
+          e is FlutterBluePlusException &&
+          e.platform == ErrorPlatform.apple &&
+          (e.code == 5 || e.code == 15);
+      final limit = pairingPending ? 8 : maxAttempts;
+      if (attempt >= limit) break;
       SdkLog.w(
-        'BLE setNotifyValue($enable) $label attempt $attempt/$maxAttempts failed',
+        'BLE setNotifyValue($enable) $label attempt $attempt/$limit failed',
         e,
         st,
       );
-      await Future<void>.delayed(Duration(milliseconds: 200 * attempt));
+      await Future<void>.delayed(
+          Duration(milliseconds: pairingPending ? 700 : 200 * attempt));
     }
   }
   Error.throwWithStackTrace(
-    lastError ?? StateError('setNotifyValue failed for $label'),
+    lastError,
     StackTrace.current,
   );
 }
